@@ -1,0 +1,14 @@
+node_modules/
+*.log
+.DS_Store
+.build-tools/
+build/
+releases/
+artifacts/
+__pycache__/
+*.pyc
+android/local.properties
+android/.gradle/
+android/app/build/
+*.keystore
+*.jks

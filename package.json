@@ -1,0 +1,17 @@
+{
+  "name": "orbit-pad",
+  "version": "0.3.0",
+  "private": true,
+  "type": "module",
+  "description": "A phone-to-PC Wi-Fi controller with a Windows keyboard receiver",
+  "scripts": {
+    "start": "node server/index.js",
+    "dev": "node --watch server/index.js",
+    "preview": "node server/index.js --dry-run",
+    "test": "node --test",
+    "build:android": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/build-android.ps1",
+    "build:windows": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/build-windows.ps1"
+  },
+  "engines": { "node": ">=22" },
+  "dependencies": { "qrcode": "^1.5.4", "ws": "^8.18.3" }
+}
