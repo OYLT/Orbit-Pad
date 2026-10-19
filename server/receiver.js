@@ -36,7 +36,7 @@ export function createReceiver({ input, port = 3210, host = '0.0.0.0', now = Dat
   const validHosts = new Set(['localhost', '127.0.0.1', '[::1]', hostname().toLowerCase(), ...addresses]);
   const send = (ws, value) => { if (ws.readyState === WebSocket.OPEN) ws.send(JSON.stringify(value)); };
   const status = () => ({
-    app: 'orbit-pad', version: '0.3.0',
+    app: 'orbit-pad', version: '0.5.0',
     name: hostname(), port: listeningPort, paused, mode: input.mode,
     ready: input.ready, error: input.error, connected: !!active,
     device: active?.device || null,
@@ -66,6 +66,10 @@ export function createReceiver({ input, port = 3210, host = '0.0.0.0', now = Dat
       if (req.method === 'POST' && req.headers.origin && req.headers.origin !== `http://${req.headers.host}`) return reply(res, 403, { error: '不允许跨站请求' });
 
       if (req.method === 'GET' && url.pathname === '/api/status') return reply(res, 200, status());
+      if (req.method === 'GET' && url.pathname === '/api/direct/bootstrap') {
+        if (!local(req)) return reply(res, 403, { error: '直连握手仅限电脑本地通道' });
+        return reply(res, 200, { app: 'orbit-pad', code: pairCode });
+      }
       if (url.pathname.startsWith('/api/host')) {
         if (!local(req)) return reply(res, 403, { error: '请在电脑上打开 localhost 管理接收端' });
         if (req.method === 'GET' && url.pathname === '/api/host') {

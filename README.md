@@ -1,25 +1,41 @@
 # ORBIT PAD · 手机无线手柄
 
-把手机变成 Wi-Fi 手柄，通过浏览器控制同一局域网中的 Windows 电脑。
+把手机变成 Windows 手柄，支持扫码、USB 数据线、蓝牙直连与局域网手动配对。
 
-## 下载 v0.3.0
+## 最新版本：0.5.0
+
+- [Android APK](https://github.com/OYLT/Orbit-Pad/releases/download/v0.5.0/OrbitPad-Android-v0.5.0.apk)
+- [Windows x64 接收端](https://github.com/OYLT/Orbit-Pad/releases/download/v0.5.0/OrbitPad-Receiver-Windows-x64-v0.5.0.zip)
+- [版本说明与 SHA-256 校验文件](https://github.com/OYLT/Orbit-Pad/releases/tag/v0.5.0)
+
+- 悬浮 Dock：主页、连接、主题、关于；主题页按计划保留空白。
+- 主页管理手柄模板，支持拖动控件、单独调整大小和显隐、修改映射，并保存、加载和删除自定义模板。
+- 连接页默认扫码，提供相机和图片识别，也可选择 USB、蓝牙或手动配对。
+- USB 使用数据线上的 ADB 通道；蓝牙使用配对后的加密 RFCOMM 通道，均由新版电脑接收端提供，不使用网络共享。
+- 关于页提供版本、系统支持、连接方式、项目地址及组件信息。
+
+Android 8.0+，包含 ARM64 和 x86_64 Rust 原生库，沿用发布签名。局域网连接仍兼容 0.3.0 接收端；USB 和蓝牙直连须使用 0.5.0 Windows 接收端。详见 [0.5.0 使用说明](docs/V0.5.0.md) 和 [Rust Android 说明](docs/ANDROID-RUST.md)。历史版 0.4.0 的 62 项真机记录保留在 [历史真机报告](docs/REDMI-RUST-TEST-REPORT.md)。
+
+## 已发布下载 v0.3.0
 
 - [Android APK](https://github.com/OYLT/Orbit-Pad/releases/download/v0.3.0/OrbitPad-Android-v0.3.0.apk)
 - [Windows x64 接收端](https://github.com/OYLT/Orbit-Pad/releases/download/v0.3.0/OrbitPad-Receiver-Windows-x64-v0.3.0.zip)
 - [版本说明与 SHA-256 校验文件](https://github.com/OYLT/Orbit-Pad/releases/tag/v0.3.0)
 
-![Material 3 真机界面](docs/images/controller-material3.png)
+新版在 Redmi K40 Pro+ / Android 16 上通过 97 项真机步骤，包含真实 USB 与蓝牙直连，见 [0.5.0 真机报告](docs/REDMI-V0.5.0-TEST-REPORT.md)。
+
+![Android 0.5.0 真机主页与悬浮 Dock](docs/images/home-v0.5.0.png)
 
 ## Android APK 与 Windows 软件
 
-已提供 0.3.0 构建，文件位于 `releases/`：
+当前本地构建文件位于 `releases/`：
 
-- `OrbitPad-Android-v0.3.0.apk`：Android 8.0+，带原生连接页、横屏、常亮和后台释放。连接后从电脑接收端载入共享手柄界面。
-- `OrbitPad-Receiver-Windows-x64-v0.3.0.zip`：Windows 10 / 11 x64 便携版。完整解压后运行 `OrbitPadReceiver.exe`，包含 Node.js 运行环境，无需另行安装 Node.js。
+- `OrbitPad-Android-v0.5.0.apk`：Android 8.0+，原生 Dock 四页、模板编辑、扫码及直连，Rust 控制核心。
+- `OrbitPad-Receiver-Windows-x64-v0.5.0.zip`：Windows 10 / 11 x64 便携版，带 USB / 蓝牙服务。完整解压后运行 `OrbitPadReceiver.exe`，自带 Node.js 和官方 Android platform-tools。
 
-电脑软件启动后，在 Android App 中填写窗口显示的 IP:端口和六位配对码。二维码用于浏览器版。最小化电脑软件后会进入系统托盘；关闭窗口将停止接收。依赖 Windows 自带的 .NET Framework 4.7.2+ 和 Windows PowerShell。
+电脑软件启动后，在手机连接页扫码即可配对，手动输入地址和配对码也是可选方式。电脑软件最小化后进入系统托盘；关闭窗口停止服务并释放输入。依赖 Windows 自带的 .NET Framework 4.7.2+ 和 Windows PowerShell。
 
-完整操作说明见 `docs/README-START.txt`。Windows 程序尚未商业代码签名。APK 已由本项目本地发布密钥签名并通过签名校验。已在 Redmi K40 Pro+（Android 16）通过 45 个真机步骤；此前 0.2.1 已验证手机 A 键实际在 Windows 测试窗口产生空格按下与松开；具体游戏兼容性尚未验证。详见 `docs/REDMI-TEST-REPORT.md`。
+完整操作说明见 `docs/README-START.txt`。Windows 程序尚未商业代码签名。APK 已由本项目本地发布密钥签名并通过签名校验。历史版 0.3.0 在 Redmi K40 Pro+（Android 16）通过 45 个真机步骤；此前 0.2.1 已验证手机 A 键实际在 Windows 测试窗口产生空格按下与松开；具体游戏兼容性尚未验证。历史记录见 `docs/REDMI-TEST-REPORT.md`。
 
 ## 开始使用
 
@@ -35,7 +51,7 @@
 
 手机连接页、横屏手柄、按键映射、手感设置、连接指南、Windows 接收端及浏览器控制台统一采用 Material Design 3 深色视觉语言。使用紫色主色、色调表面、圆角卡片、填充按钮、描边输入框、分段控件和 Material 滑块；全屏右上角可直接打开设置。
 
-Android 使用原生平台控件配合主题绘制，手柄使用 HTML/CSS，Windows 使用 WinForms 自绘控件，三端共享配色和形状规范。
+Android 使用原生平台控件和 Canvas 绘制手柄，浏览器手柄使用 HTML/CSS，Windows 使用 WinForms 自绘控件，三端共享配色和形状规范。
 
 ## 已实现
 
@@ -61,7 +77,7 @@ Android 使用原生平台控件配合主题绘制，手柄使用 HTML/CSS，Win
 
 ## 当前边界
 
-提供移动网页、Android APK 和 Windows 桌面接收端，尚无 iOS 安装包。Android App 使用原生连接页和受限 WebView，手柄界面由电脑接收端在局域网提供；网页仍可通过局域网 HTTP 地址直接使用。不同浏览器可能限制系统全屏、常亮和振动，Android App 提供原生横屏与常亮。没有离线控制功能，通信必须保持连接。
+提供移动网页、Android APK 和 Windows 桌面接收端，尚无 iOS 安装包。Android 0.5.0 的 Dock、连接、手柄和设置均为本地原生界面，Rust 直接连接电脑接收端；网页仍可通过局域网 HTTP 地址直接使用。不同浏览器可能限制系统全屏、常亮和振动，Android App 提供原生横屏与常亮。控制电脑时必须保持所选的局域网、USB 或蓝牙通道。
 
 **输出是键盘输入，并非 Xbox / XInput / DirectInput 虚拟手柄。** 摇杆与扳机目前转换为数字按键，没有模拟量输出。支持键盘操作且接受模拟输入的游戏才能使用；某些游戏、反作弊系统或独占输入模式可能不接受这种方式。没有针对具体游戏做兼容性验证。
 
@@ -81,6 +97,7 @@ Android 使用原生平台控件配合主题绘制，手柄使用 HTML/CSS，Win
 ```powershell
 npm install
 npm test
+npm run test:android
 npm run preview
 ```
 
@@ -97,7 +114,7 @@ npm run build:android
 npm run build:windows
 ```
 
-Android 构建需要 JDK 17+ 和 Python 3。可以用 `JAVA_HOME` 指定 JDK，脚本也会识别本机构建时发现的现有 JDK。首次构建从 Google 官方 SDK 仓库下载 API 35 平台与 Build Tools 35.0.0，并校验仓库提供的哈希；所有工具仅放在项目 `.build-tools/`。使用 `aapt2 → javac → D8 → zipalign → apksigner` 构建，不依赖 Gradle 或 Android Studio。
+Android 构建需要 Windows x64、JDK 17+ 和 Python 3。可以用 `JAVA_HOME` 指定 JDK，脚本也会识别本机构建时发现的现有 JDK。首次构建从官方源下载 API 35 平台、Build Tools 35.0.0、NDK r28c 和 Rust 1.90.0，并校验下载哈希；工具仅放在项目 `.build-tools/`，不修改系统 PATH。使用 `cargo → aapt2 → javac → D8 → zipalign → apksigner` 构建，不依赖 Gradle 或 Android Studio。首次构建完成工具安装后可运行 `npm run test:android` 检查 Rust 核心。
 
 Android 发布签名保存在 `.build-tools/orbitpad-release.jks` 和 `.build-tools/android-signing.json`，仅供本机构建、未打入发布包。请妥善备份，后续升级同一 App 需要使用同一密钥。`.build-tools/` 已排除于版本控制。
 

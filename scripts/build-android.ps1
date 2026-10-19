@@ -4,5 +4,7 @@ Set-Location -LiteralPath (Split-Path -Parent $PSScriptRoot)
 if ($JavaHome) { $env:ORBIT_JAVA_HOME = $JavaHome }
 python scripts/setup-android.py
 if ($LASTEXITCODE -ne 0) { throw 'Android SDK setup failed' }
+python scripts/setup-rust-android.py
+if ($LASTEXITCODE -ne 0) { throw 'Rust / Android NDK setup failed' }
 python scripts/build-android.py
 if ($LASTEXITCODE -ne 0) { throw 'Android APK build failed' }

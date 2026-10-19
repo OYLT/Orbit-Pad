@@ -35,6 +35,19 @@ public final class DeviceInstrumentation extends Instrumentation {
             activity = startActivitySync(intent);
             trace("wait-idle");
             waitForIdleSync();
+            if("bluetooth".equals(arguments.getString("suite"))){bluetoothDirect();result.putString("orbit_result","PASS");finish(Activity.RESULT_OK,result);return;}
+            if("camera".equals(arguments.getString("suite"))){cameraPreview();result.putString("orbit_result","PASS");finish(Activity.RESULT_OK,result);return;}
+            if ("shell".equals(arguments.getString("suite")) || "usb".equals(arguments.getString("suite"))) {
+                runOnMainSync(()->activity.getWindow().addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON));
+                if("shell".equals(arguments.getString("suite")))nativeShell();else usbDirect();
+                result.putString("orbit_result","PASS");finish(Activity.RESULT_OK,result);return;
+            }
+            if ("settings".equals(arguments.getString("suite"))) {
+                nativeSettings();
+                result.putString("orbit_result", "PASS");
+                finish(Activity.RESULT_OK, result);
+                return;
+            }
             trace("connect-invalid-code");
             connect(arguments.getString("address"), "000000");
             waitContains("配对码不正确", 15000);
@@ -132,6 +145,132 @@ public final class DeviceInstrumentation extends Instrumentation {
     }
 
     private void trace(String value) { Bundle b = new Bundle(); b.putString("orbit_trace", value); sendStatus(1, b); }
+    private void cameraPreview() throws Exception {
+        automation.grantRuntimePermission("app.orbitpad.controller","android.permission.CAMERA");
+        ActivityMonitor monitor=addMonitor("app.orbitpad.controller.ScanActivity",null,false);
+        tapNode("导航连接");tapNode("打开相机扫码");Activity scanner=monitor.waitForActivityWithTimeout(8000);
+        if(scanner==null)throw new AssertionError("Scanner did not launch");
+        java.lang.reflect.Field field=scanner.getClass().getDeclaredField("camera");field.setAccessible(true);
+        long until=SystemClock.uptimeMillis()+8000;java.util.concurrent.atomic.AtomicBoolean open=new java.util.concurrent.atomic.AtomicBoolean();
+        while(!open.get()&&SystemClock.uptimeMillis()<until){runOnMainSync(()->{try{open.set(field.get(scanner)!=null);}catch(Exception e){throw new RuntimeException(e);}});SystemClock.sleep(150);}
+        if(!open.get())throw new AssertionError("Camera preview did not open");SystemClock.sleep(500);phase("camera-preview-open","","false");
+        runOnMainSync(()->scanner.finish());SystemClock.sleep(600);if(field.get(scanner)!=null)throw new AssertionError("Camera was not released");phase("camera-release-on-exit","","false");removeMonitor(monitor);
+    }
+    private void nativeShell() throws Exception {
+        String[] keys={"rust_settings","template_name","templates_v1"};String[] previous=new String[keys.length];
+        for(int i=0;i<keys.length;i++)previous[i]=activity.getPreferences(0).getString(keys[i],null);
+        try{
+            waitContains("你的手柄",5000);phase("shell-home","","false");
+            tapNode("导航主题");waitNode("主题",5000);phase("shell-theme","","false");
+            tapNode("导航关于");waitContains("版本 0.5.0",5000);phase("shell-about","","false");
+            tapNode("导航连接");waitNode("打开相机扫码",5000);phase("shell-scan-default","","false");
+            tapNode("USB 直连");waitNode("连接 USB 手柄",5000);phase("shell-usb-option","","false");
+            tapNode("蓝牙直连");waitNode("选择已配对的电脑",5000);phase("shell-bluetooth-option","","false");
+            tapNode("导航主页");tapNode("自定义按键布局");waitNode("A",5000);SystemClock.sleep(700);
+            Rect a=bounds(waitNode("A",5000));float[][] first={{a.exactCenterX(),a.exactCenterY()}},moved={{a.exactCenterX()-140,a.exactCenterY()-60}};
+            downTime=SystemClock.uptimeMillis();touch(MotionEvent.ACTION_DOWN,new int[]{0},first);touch(MotionEvent.ACTION_MOVE,new int[]{0},moved);touch(MotionEvent.ACTION_UP,new int[]{0},moved);SystemClock.sleep(250);
+            Rect changed=bounds(waitNode("A",5000));if(Math.abs(changed.exactCenterX()-moved[0][0])>8||Math.abs(changed.exactCenterY()-moved[0][1])>8)throw new AssertionError("Drag layout was not saved");
+            phase("shell-editor-drag","","false");tapNode("A");progress("控件大小",20);tapNode("完成");SystemClock.sleep(200);
+            Rect scaled=bounds(waitNode("A",5000));if(Math.abs(scaled.width()/(float)a.width()-.8f)>.04)throw new AssertionError("Per-control size did not change");
+            phase("shell-control-scale","","false");tapNode("保存并返回");tapNode("＋ 保存为新模板");
+            List<AccessibilityNodeInfo> inputs=new ArrayList<>();inputs(automation.getRootInActiveWindow(),inputs);if(inputs.size()!=1)throw new AssertionError("Template name field missing");setText(inputs.get(0),"测试模板");tapNode("保存");
+            phase("shell-template-saved","","false");tapNode("通用游戏  ↗");tapNode("测试模板");tapNode("自定义按键布局");SystemClock.sleep(500);
+            Rect loaded=bounds(waitNode("A",5000));if(Math.abs(loaded.exactCenterX()-scaled.exactCenterX())>8||Math.abs(loaded.width()-scaled.width())>4)throw new AssertionError("Template did not restore custom layout");
+            phase("shell-template-loaded","","false");tapNode("保存并返回");tapNode("通用游戏  ↗");
+            byte[] png=android.util.Base64.decode(arguments.getString("qrBase64"),android.util.Base64.DEFAULT);
+            android.graphics.Bitmap bitmap=android.graphics.BitmapFactory.decodeByteArray(png,0,png.length);
+            String qr=(String)Class.forName("app.orbitpad.controller.QrDecoder").getMethod("decodeBitmap",android.graphics.Bitmap.class).invoke(null,bitmap);bitmap.recycle();
+            if(qr==null||!qr.endsWith("#pair="+arguments.getString("code")))throw new AssertionError("Actual receiver QR PNG did not decode");
+            phase("shell-qr-image-decoded","","false");
+            final java.lang.reflect.Method connect=activity.getClass().getDeclaredMethod("connectQr",String.class);connect.setAccessible(true);
+            final String value=qr;runOnMainSync(()->{try{connect.invoke(activity,value);}catch(Exception e){throw new RuntimeException(e);}});
+            waitNode("A",15000);SystemClock.sleep(600);phase("shell-qr-paired","","true");hold("A","Space","shell-qr-a");returnToNative();phase("shell-qr-disconnect","","false");
+        }finally{
+            android.content.SharedPreferences.Editor restore=activity.getPreferences(0).edit();for(int i=0;i<keys.length;i++){if(previous[i]==null)restore.remove(keys[i]);else restore.putString(keys[i],previous[i]);}restore.commit();
+        }
+    }
+    private void usbDirect() throws Exception {
+        tapNode("导航连接");tapNode("USB 直连");tapNode("连接 USB 手柄");directControls("usb");
+    }
+    private void bluetoothDirect() throws Exception {
+        automation.grantRuntimePermission("app.orbitpad.controller","android.permission.BLUETOOTH_CONNECT");
+        tapNode("导航连接");tapNode("蓝牙直连");tapNode("选择已配对的电脑");
+        AccessibilityNodeInfo computer=waitContains(arguments.getString("bluetoothName"),8000);
+        if(!computer.performAction(AccessibilityNodeInfo.ACTION_CLICK)){
+            Rect rect=bounds(computer);float[][] p={{rect.exactCenterX(),rect.exactCenterY()}};downTime=SystemClock.uptimeMillis();touch(MotionEvent.ACTION_DOWN,new int[]{0},p);touch(MotionEvent.ACTION_UP,new int[]{0},p);
+        }
+        directControls("bluetooth");
+    }
+    private void directControls(String prefix) throws Exception {
+        waitNode("A",35000);SystemClock.sleep(900);
+        phase(prefix+"-auto-paired","","true");hold("A","Space",prefix+"-a");
+        Rect left=bounds(waitNode("左摇杆，映射 WASD",5000)),right=bounds(waitNode("右摇杆，映射方向键",5000)),a=bounds(waitNode("A",5000));
+        float[] l={left.exactCenterX()+left.width()*.3f,left.exactCenterY()-left.height()*.3f};float[] r={right.exactCenterX()-right.width()*.3f,right.exactCenterY()-right.height()*.3f};float[] button={a.exactCenterX(),a.exactCenterY()};
+        downTime=SystemClock.uptimeMillis();touch(MotionEvent.ACTION_DOWN,new int[]{0},new float[][]{l});
+        touch(MotionEvent.ACTION_POINTER_DOWN|(1<<8),new int[]{0,1},new float[][]{l,r});touch(MotionEvent.ACTION_POINTER_DOWN|(2<<8),new int[]{0,1,2},new float[][]{l,r,button});
+        phase(prefix+"-three-finger","D,W,ArrowLeft,ArrowUp,Space","true");touch(MotionEvent.ACTION_CANCEL,new int[]{0,1,2},new float[][]{l,r,button});phase(prefix+"-cancel-releases","","true");
+        downTime=SystemClock.uptimeMillis();touch(MotionEvent.ACTION_DOWN,new int[]{0},new float[][]{button});phase(prefix+"-held-before-home","Space","true");key(KeyEvent.KEYCODE_HOME);SystemClock.sleep(800);phase(prefix+"-background-release","","false");
+        trace("resume-activity");SystemClock.sleep(prefix.equals("bluetooth")?5000:1500);waitNode("A",15000);phase(prefix+"-foreground-reconnected","","true");returnToNative();phase(prefix+"-disconnected","","false");
+    }
+    private void nativeSettings() throws Exception {
+        String saved=activity.getPreferences(0).getString("rust_settings", null);
+        try {
+            connect(arguments.getString("address"), arguments.getString("code"));
+            waitNode("A",15000);SystemClock.sleep(1000);
+            Rect originalLeft=bounds(waitNode("左摇杆，映射 WASD",5000));
+            tapNode("手柄设置");tapNode("竞速");key(KeyEvent.KEYCODE_BACK);
+            hold("B","R","native-racing-b");hold("RT SHIFT","W","native-racing-rt");
+            tapNode("手柄设置");tapNode("跳跃");key(KeyEvent.KEYCODE_BACK);
+            Rect left=bounds(waitNode("左摇杆，映射 WASD",5000));
+            float[] center={left.exactCenterX(),left.exactCenterY()};
+            downTime=SystemClock.uptimeMillis();touch(MotionEvent.ACTION_DOWN,new int[]{0},new float[][]{center});
+            touch(MotionEvent.ACTION_MOVE,new int[]{0},new float[][]{{center[0]+left.width()*.4f,center[1]}});
+            phase("native-platform-stick","ArrowRight","true");
+            touch(MotionEvent.ACTION_UP,new int[]{0},new float[][]{center});phase("native-platform-release","","true");
+            tapNode("手柄设置");tapNode("通用");tapNode("A · 跳跃映射");tapNode("Enter");
+            key(KeyEvent.KEYCODE_BACK);hold("A","Enter","native-custom-a");
+            tapNode("手柄设置");tapNode("手感调节");
+            progress("摇杆死区",40);waitContains("摇杆死区 · 50%",5000);
+            progress("显示比例",0);waitContains("显示比例 · 80%",5000);
+            AccessibilityNodeInfo haptics=waitNode("振动反馈",5000);
+            if(haptics.isChecked())tapNode("振动反馈");
+            if(waitNode("振动反馈",5000).isChecked())throw new AssertionError("Haptics switch did not turn off");
+            phase("native-settings-saved","","true");key(KeyEvent.KEYCODE_BACK);
+            left=bounds(waitNode("左摇杆，映射 WASD",5000));
+            if(Math.abs(left.width()/(float)originalLeft.width()-.8f)>.03f)throw new AssertionError("Control scale did not change to 80%");
+            phase("native-control-scale-80","","true");
+            center=new float[]{left.exactCenterX(),left.exactCenterY()};
+            downTime=SystemClock.uptimeMillis();touch(MotionEvent.ACTION_DOWN,new int[]{0},new float[][]{center});
+            touch(MotionEvent.ACTION_MOVE,new int[]{0},new float[][]{{center[0]+left.width()*.2f,center[1]}});
+            phase("native-deadzone-50-small","","true");
+            touch(MotionEvent.ACTION_MOVE,new int[]{0},new float[][]{{center[0]+left.width()*.4f,center[1]}});
+            phase("native-deadzone-50-large","D","true");
+            touch(MotionEvent.ACTION_UP,new int[]{0},new float[][]{center});phase("native-deadzone-release","","true");
+            runOnMainSync(()->activity.recreate());
+            waitContains("你的手柄",10000);SystemClock.sleep(500);
+            connect(arguments.getString("address"),arguments.getString("code"));waitNode("A",15000);SystemClock.sleep(600);
+            hold("A","Enter","native-recreated-custom-a");
+            tapNode("手柄设置");tapNode("手感调节");
+            waitContains("摇杆死区 · 50%",5000);waitContains("显示比例 · 80%",5000);
+            if(waitNode("振动反馈",5000).isChecked())throw new AssertionError("Haptics setting did not survive recreation");
+            phase("native-settings-restored","","true");key(KeyEvent.KEYCODE_BACK);
+            returnToNative();phase("native-settings-disconnect","","false");
+        } finally {
+            android.content.SharedPreferences.Editor restore=activity.getPreferences(0).edit();
+            if(saved==null)restore.remove("rust_settings");else restore.putString("rust_settings",saved);
+            if(!restore.commit())throw new AssertionError("Could not restore original preferences");
+        }
+    }
+    private void progress(String name,float value) {
+        Bundle bundle=new Bundle();bundle.putFloat(AccessibilityNodeInfo.ACTION_ARGUMENT_PROGRESS_VALUE,value);
+        if(!waitNode(name,5000).performAction(AccessibilityNodeInfo.AccessibilityAction.ACTION_SET_PROGRESS.getId(),bundle))throw new AssertionError("Slider update failed: "+name);
+        SystemClock.sleep(200);
+    }
+    private void hold(String name,String expected,String phaseName) {
+        Rect rect=bounds(waitNode(name,5000));float[][] point={{rect.exactCenterX(),rect.exactCenterY()}};
+        downTime=SystemClock.uptimeMillis();touch(MotionEvent.ACTION_DOWN,new int[]{0},point);phase(phaseName+"-down",expected,"true");
+        touch(MotionEvent.ACTION_UP,new int[]{0},point);phase(phaseName+"-up","","true");
+    }
     private void describe(AccessibilityNodeInfo node, StringBuilder text) {
         if (node == null || text.length() > 18000) return;
         if (node.getText() != null || node.getContentDescription() != null) text.append(node.getClassName()).append(" ").append(node.getText()).append(" / ").append(node.getContentDescription()).append(" ").append(bounds(node)).append("\n");
@@ -147,14 +286,20 @@ public final class DeviceInstrumentation extends Instrumentation {
         SystemClock.sleep(name.equals("landscape-awake-connected") || name.startsWith("material-settings") || name.equals("settings-back-preserves-connection") ? 2400 : 800);
     }
     private void tapNode(String name) {
-        Rect rect = bounds(waitNode(name, 5000));
+        AccessibilityNodeInfo target=waitNode(name,5000);
+        if(target.isClickable()&&target.performAction(AccessibilityNodeInfo.ACTION_CLICK)){SystemClock.sleep(250);return;}
+        Rect rect = bounds(target);
         float[][] point = {{rect.exactCenterX(), rect.exactCenterY()}};
         downTime = SystemClock.uptimeMillis();
         touch(MotionEvent.ACTION_DOWN, new int[]{0}, point);
         touch(MotionEvent.ACTION_UP, new int[]{0}, point);
+        SystemClock.sleep(200);
     }
     private Rect bounds(AccessibilityNodeInfo node) { Rect rect = new Rect(); node.getBoundsInScreen(rect); return rect; }
     private void connect(String address, String code) {
+        if(find(automation.getRootInActiveWindow(),"导航连接",false)!=null){
+            tapNode("导航连接");tapNode("手动配对");
+        }
         List<AccessibilityNodeInfo> inputs = new ArrayList<>();
         long until = SystemClock.uptimeMillis() + 8000;
         while (inputs.size() != 2 && SystemClock.uptimeMillis() < until) { inputs.clear(); inputs(automation.getRootInActiveWindow(), inputs); SystemClock.sleep(120); }
@@ -185,14 +330,20 @@ public final class DeviceInstrumentation extends Instrumentation {
         long until = SystemClock.uptimeMillis() + timeout;
         while (SystemClock.uptimeMillis() < until) {
             AccessibilityNodeInfo node = find(automation.getRootInActiveWindow(), text, contains);
-            if (node != null && !bounds(node).isEmpty()) return node;
+            AccessibilityNodeInfo dock=find(automation.getRootInActiveWindow(),"导航主页",false);
+            boolean covered=node!=null&&dock!=null&&!text.startsWith("导航")&&bounds(node).bottom>bounds(dock).top;
+            if (node != null && !bounds(node).isEmpty()&&!covered) return node;
+            AccessibilityNodeInfo scroll=findScrollable(automation.getRootInActiveWindow());
+            if(scroll!=null)scroll.performAction(node!=null&&bounds(node).bottom<=bounds(node).top?AccessibilityNodeInfo.ACTION_SCROLL_BACKWARD:AccessibilityNodeInfo.ACTION_SCROLL_FORWARD);
             SystemClock.sleep(150);
         }
         throw new AssertionError("UI node not found: " + text);
     }
+    private AccessibilityNodeInfo findScrollable(AccessibilityNodeInfo node){if(node==null)return null;if(node.isScrollable())return node;for(int i=0;i<node.getChildCount();i++){AccessibilityNodeInfo result=findScrollable(node.getChild(i));if(result!=null)return result;}return null;}
     private void returnToNative() {
         key(KeyEvent.KEYCODE_BACK);
         waitNode("断开", 5000).performAction(AccessibilityNodeInfo.ACTION_CLICK);
+        waitNode("手动配对",5000);tapNode("手动配对");
         waitContains("连接并开始", 5000); SystemClock.sleep(350);
     }
     private void key(int code) {

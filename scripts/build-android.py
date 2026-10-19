@@ -8,6 +8,7 @@ import shutil
 import subprocess
 import sys
 import zipfile
+import xml.etree.ElementTree as ET
 
 ROOT = Path(__file__).resolve().parents[1]
 TOOLS = ROOT / '.build-tools'
@@ -30,22 +31,37 @@ def run(args, **kwargs):
     subprocess.run([str(a) for a in args], cwd=ROOT, check=True, **kwargs)
 
 source = ROOT / ('android/device-test/src/main' if TEST_BUILD else 'android/app/src/main')
+version = ET.parse(source / 'AndroidManifest.xml').getroot().attrib['{http://schemas.android.com/apk/res/android}versionName']
+if not TEST_BUILD:
+    run([sys.executable, ROOT / 'scripts/build-rust-android.py'])
+    run([sys.executable, ROOT / 'scripts/setup-android-deps.py'])
+# Never package stale inner classes or dex from an older implementation.
+for file in (BUILD / 'classes').rglob('*.class'):
+    file.unlink()
+for file in (BUILD / 'dex').glob('*.dex'):
+    file.unlink()
 run([BUILD_TOOLS / 'aapt2.exe', 'compile', '--dir', source / 'res', '-o', BUILD / 'resources.zip'])
+assets = ['-A', source / 'assets'] if (source / 'assets').exists() else []
 run([BUILD_TOOLS / 'aapt2.exe', 'link', '-o', BUILD / 'base.apk', '-I', PLATFORM,
-    '--manifest', source / 'AndroidManifest.xml', '--java', BUILD / 'generated', '--auto-add-overlay', BUILD / 'resources.zip'])
+    '--manifest', source / 'AndroidManifest.xml', '--java', BUILD / 'generated', '--auto-add-overlay', *assets, BUILD / 'resources.zip'])
 sources = list((source / 'java').rglob('*.java')) + list((BUILD / 'generated').rglob('*.java'))
-run([JAVA / 'bin/javac.exe', '-encoding', 'UTF-8', '--release', '8', '-classpath', PLATFORM,
+libraries = [TOOLS / 'zxing-core-3.5.3.jar'] if not TEST_BUILD else []
+classpath = os.pathsep.join(str(p) for p in [PLATFORM,*libraries])
+run([JAVA / 'bin/javac.exe', '-encoding', 'UTF-8', '--release', '8', '-classpath', classpath,
     '-d', BUILD / 'classes', *sources])
 with zipfile.ZipFile(BUILD / 'classes.jar', 'w') as z:
     for file in (BUILD / 'classes').rglob('*.class'):
         z.write(file, file.relative_to(BUILD / 'classes').as_posix())
 run([JAVA / 'bin/java.exe', '-cp', BUILD_TOOLS / 'lib/d8.jar', 'com.android.tools.r8.D8',
-    '--release', '--min-api', '26', '--lib', PLATFORM, '--output', BUILD / 'dex', BUILD / 'classes.jar'])
+    '--release', '--min-api', '26', '--lib', PLATFORM, '--output', BUILD / 'dex', BUILD / 'classes.jar', *libraries])
 shutil.copy2(BUILD / 'base.apk', BUILD / 'unsigned.apk')
 with zipfile.ZipFile(BUILD / 'unsigned.apk', 'a', zipfile.ZIP_DEFLATED) as z:
     for file in (BUILD / 'dex').glob('*.dex'):
         z.write(file, file.name)
-run([BUILD_TOOLS / 'zipalign.exe', '-f', '-p', '4', BUILD / 'unsigned.apk', BUILD / 'aligned.apk'])
+    if not TEST_BUILD:
+        for file in (BUILD / 'jni').rglob('*.so'):
+            z.write(file, 'lib/' + file.relative_to(BUILD / 'jni').as_posix(), compress_type=zipfile.ZIP_STORED)
+run([BUILD_TOOLS / 'zipalign.exe', '-f', '-P', '16', '4', BUILD / 'unsigned.apk', BUILD / 'aligned.apk'])
 
 credentials = TOOLS / 'android-signing.json'
 keystore = TOOLS / 'orbitpad-release.jks'
@@ -62,13 +78,13 @@ if not keystore.exists():
         '-keyalg', 'RSA', '-keysize', '2048', '-validity', '10000', '-dname', 'CN=Orbit Pad Local Release, O=Orbit Pad, C=SG'], env=env)
     if os.name == 'nt':
         subprocess.run(['icacls', str(keystore), '/inheritance:r', '/grant:r', f'{os.environ["USERNAME"]}:(F)'], capture_output=True, check=True)
-apk = OUT / ('OrbitPad-device-tests.apk' if TEST_BUILD else 'OrbitPad-Android-v0.3.0.apk')
+apk = OUT / ('OrbitPad-device-tests.apk' if TEST_BUILD else f'OrbitPad-Android-v{version}.apk')
 signer = [JAVA / 'bin/java.exe', '-jar', BUILD_TOOLS / 'lib/apksigner.jar']
 run([*signer, 'sign', '--ks', keystore, '--ks-key-alias', config['alias'], '--ks-pass', 'env:ORBIT_STORE_PASSWORD',
     '--key-pass', 'env:ORBIT_STORE_PASSWORD', '--out', apk, BUILD / 'aligned.apk'], env=env)
 verification = subprocess.run([str(x) for x in [*signer, 'verify', '--verbose', '--print-certs', apk]], cwd=ROOT, capture_output=True, text=True, check=True)
 (OUT / 'android-signature-verification.txt').write_text(verification.stdout, encoding='utf-8')
-run([BUILD_TOOLS / 'zipalign.exe', '-c', '-v', '4', apk], stdout=subprocess.DEVNULL)
+run([BUILD_TOOLS / 'zipalign.exe', '-c', '-P', '16', '-v', '4', apk], stdout=subprocess.DEVNULL)
 metadata = subprocess.run([str(BUILD_TOOLS / 'aapt2.exe'), 'dump', 'badging', str(apk)], capture_output=True, text=True, check=True)
 (OUT / 'android-package-info.txt').write_text(metadata.stdout, encoding='utf-8')
 print(verification.stdout)

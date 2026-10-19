@@ -1,6 +1,8 @@
 ﻿$ErrorActionPreference = 'Stop'
 $orbitRoot = Split-Path -Parent $PSScriptRoot
 Set-Location -LiteralPath $orbitRoot
+python scripts/setup-direct-connections.py
+if ($LASTEXITCODE -ne 0) { throw 'USB component setup failed.' }
 $orbitOut = Join-Path $orbitRoot 'releases\OrbitPad-Receiver-Windows-x64'
 New-Item -ItemType Directory -Force -Path $orbitOut,(Join-Path $orbitOut 'app'),(Join-Path $orbitOut 'runtime'),(Join-Path $orbitRoot 'build\windows') | Out-Null
 $compiler = Join-Path $env:WINDIR 'Microsoft.NET\Framework64\v4.0.30319\csc.exe'
@@ -29,9 +31,10 @@ $bitmap.Dispose()
 $pen.Dispose()
 
 $exePath = Join-Path $orbitOut 'OrbitPadReceiver.exe'
-& $compiler /nologo /target:winexe /platform:x64 /optimize+ /codepage:65001 "/out:$exePath" "/win32icon:$iconPath" "/win32manifest:$orbitRoot\desktop\app.manifest" /reference:System.Windows.Forms.dll /reference:System.Drawing.dll /reference:System.Net.Http.dll /reference:System.Web.Extensions.dll "$orbitRoot\desktop\OrbitPadReceiver.cs"
+& $compiler /nologo /target:winexe /platform:x64 /optimize+ /codepage:65001 "/out:$exePath" "/win32icon:$iconPath" "/win32manifest:$orbitRoot\desktop\app.manifest" /reference:System.Windows.Forms.dll /reference:System.Drawing.dll /reference:System.Net.Http.dll /reference:System.Web.Extensions.dll "$orbitRoot\desktop\OrbitPadReceiver.cs" "$orbitRoot\desktop\DirectConnections.cs"
 if ($LASTEXITCODE -ne 0) { throw 'Windows receiver compilation failed.' }
 Copy-Item -LiteralPath (Get-Command node.exe).Source -Destination (Join-Path $orbitOut 'runtime\node.exe') -Force
+Copy-Item -LiteralPath (Join-Path $orbitRoot '.build-tools\android-sdk\platform-tools') -Destination (Join-Path $orbitOut 'runtime') -Recurse -Force
 $nodeLicense = Join-Path $orbitRoot '.build-tools\NODE-LICENSE.txt'
 if (-not (Test-Path -LiteralPath $nodeLicense)) {
     $nodeVersion = (& node -p 'process.version').Trim()
@@ -54,6 +57,6 @@ if ($selfTest.ExitCode -ne 0) {
     throw 'Packaged Windows receiver self-test failed.'
 }
 Get-Content -LiteralPath $reportPath
-$archive = Join-Path $orbitRoot 'releases\OrbitPad-Receiver-Windows-x64-v0.3.0.zip'
+$archive = Join-Path $orbitRoot 'releases\OrbitPad-Receiver-Windows-x64-v0.5.0.zip'
 Compress-Archive -LiteralPath $orbitOut -DestinationPath $archive -CompressionLevel Optimal -Force
 Write-Output "Windows receiver ready: $archive"

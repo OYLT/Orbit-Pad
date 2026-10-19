@@ -17,7 +17,7 @@ using System.Windows.Forms;
 
 [assembly: System.Reflection.AssemblyTitle("Orbit Pad Receiver")]
 [assembly: System.Reflection.AssemblyDescription("Phone-to-PC Wi-Fi controller receiver")]
-[assembly: System.Reflection.AssemblyVersion("0.3.0.0")]
+[assembly: System.Reflection.AssemblyVersion("0.5.0.0")]
 
 internal sealed class ReceiverService : IDisposable {
     private readonly HttpClient http;
@@ -28,6 +28,7 @@ internal sealed class ReceiverService : IDisposable {
     private Process process;
     private string logTail = "";
     public int Port { get; private set; }
+    internal DirectConnections Direct { get; private set; }
     public bool Running { get { return process != null && !process.HasExited; } }
     public string BaseUrl { get { return "http://127.0.0.1:" + Port; } }
     public string BrowserUrl { get { return "http://localhost:" + Port; } }
@@ -68,7 +69,7 @@ internal sealed class ReceiverService : IDisposable {
             if (!Running) throw new Exception("接收进程退出：" + logTail);
             try {
                 var state = await Status();
-                if (Convert.ToBoolean(state["ready"])) return;
+                if (Convert.ToBoolean(state["ready"])) { Direct = new DirectConnections(Port); return; }
                 string error = Convert.ToString(state["error"]);
                 if (error.Length > 0) throw new InvalidOperationException(error);
             } catch (HttpRequestException) { } catch (TaskCanceledException) { }
@@ -94,6 +95,7 @@ internal sealed class ReceiverService : IDisposable {
         return await http.GetByteArrayAsync(BaseUrl + "/api/host/qr?format=png&ip=" + Uri.EscapeDataString(ip));
     }
     public async Task Stop() {
+        if (Direct != null) { var ownedDirect = Direct; Direct = null; await Task.Run(() => ownedDirect.Dispose()); }
         if (process == null) return;
         try { if (Running) await Command("shutdown", new { }); } catch { }
         var owned = process;
@@ -204,7 +206,7 @@ internal sealed class ReceiverForm : Form {
         root.RowStyles.Add(new RowStyle(SizeType.Absolute, 72)); root.RowStyles.Add(new RowStyle(SizeType.Absolute, 38));
         var heading = new FlowLayoutPanel { FlowDirection = FlowDirection.TopDown, Dock = DockStyle.Fill, WrapContents = false };
         heading.Controls.Add(Label("Orbit Pad", 24, Mint));
-        heading.Controls.Add(Label("手机无线手柄 · Windows 接收端 0.3.0", 10, Muted));
+        heading.Controls.Add(Label("手机手柄 · Windows 接收端 0.5.0", 10, Muted));
         Cell(root, heading, 0, 2);
 
         var connection = new Card { Dock = DockStyle.Fill, Margin = new Padding(0, 0, 20, 0) };
@@ -213,7 +215,7 @@ internal sealed class ReceiverForm : Form {
         float[] heights = { 42, 44, 30, 44, 30, 64, 30, 34, 26, 40, 0 };
         for (int i = 0; i < heights.Length; i++) left.RowStyles.Add(new RowStyle(i == 10 ? SizeType.Percent : SizeType.Absolute, i == 10 ? 100 : heights[i]));
         Cell(left, Label("连接手机，开始游戏", 20, TextColor), 0);
-        Cell(left, Label("在 Android App 输入下方地址与配对码，\n然后把电脑切换到游戏窗口。", 10, Muted), 1);
+        Cell(left, Label("手机默认扫码连接，也可选择 USB、蓝牙\n或手动输入地址与配对码。", 10, Muted), 1);
         Cell(left, Label("电脑局域网地址", 10, Muted), 2);
         networks.DropDownStyle = ComboBoxStyle.DropDownList; networks.Dock = DockStyle.Top;
         networks.Font = new Font("Consolas", 14); networks.BackColor = Color.FromArgb(54, 52, 59); networks.ForeColor = TextColor;
@@ -245,15 +247,17 @@ internal sealed class ReceiverForm : Form {
         Cell(right, Label("扫码体验 / 手机 App", 14, TextColor, true), 0);
         qr.SizeMode = PictureBoxSizeMode.Zoom; qr.Dock = DockStyle.Fill; qr.BackColor = Color.White;
         qr.Margin = new Padding(0, 0, 0, 8); Cell(right, qr, 1);
-        Cell(right, Label("二维码打开浏览器版。\nAPK 内直接输入左侧地址和配对码。", 9, Muted), 2);
+        Cell(right, Label("在手机 App 连接页选择扫码。\n浏览器也可使用此二维码。", 9, Muted), 2);
         Cell(right, Label("连接小贴士", 11, Mint, true), 3);
         Cell(right, Label("01  手机与电脑连接同一个 Wi-Fi\n02  防火墙允许专用网络连接\n03  手机横屏，开始游戏", 9, Muted), 4);
         scan.Controls.Add(right); root.Controls.Add(scan, 1, 1);
 
-        var actions = new TableLayoutPanel { Dock = DockStyle.Fill, ColumnCount = 5, RowCount = 1, Padding = new Padding(0, 18, 0, 8) };
-        for (int i = 0; i < 5; i++) actions.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 20));
+        var actions = new TableLayoutPanel { Dock = DockStyle.Fill, ColumnCount = 7, RowCount = 1, Padding = new Padding(0, 18, 0, 8) };
+        for (int i = 0; i < 7; i++) actions.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100f / 7));
         actions.Controls.Add(ConfigureButton(power, "停止接收", true)); actions.Controls.Add(ConfigureButton(pause, "暂停输入"));
         actions.Controls.Add(ConfigureButton(reset, "重置配对"));
+        var usb = ConfigureButton(new MaterialButton(), "USB 连接"); actions.Controls.Add(usb);
+        var bluetooth = ConfigureButton(new MaterialButton(), "蓝牙连接"); actions.Controls.Add(bluetooth);
         var copy = ConfigureButton(new MaterialButton(), "复制地址"); actions.Controls.Add(copy);
         var console = ConfigureButton(new MaterialButton(), "高级控制台"); actions.Controls.Add(console); Cell(root, actions, 2, 2);
         modeLabel.AutoSize = true; modeLabel.ForeColor = Muted; modeLabel.Font = new Font("Microsoft YaHei UI", 8);
@@ -263,6 +267,28 @@ internal sealed class ReceiverForm : Form {
         networks.SelectedIndexChanged += async (sender, args) => { try { await UpdateQr(); } catch { } };
         copy.Click += (sender, args) => { if (networks.SelectedItem != null) { Clipboard.SetText(networks.SelectedItem.ToString()); statusLabel.Text = "● 连接地址已复制"; } };
         console.Click += (sender, args) => { if (service.Running) Process.Start(service.BrowserUrl); };
+        usb.Click += async (sender, args) => {
+            usb.Enabled = false;
+            try {
+                if (!service.Running || service.Direct == null) throw new Exception("请先启动接收端");
+                var devices = await service.Direct.UsbDevices();
+                if (devices.Length == 0) throw new Exception("未发现已授权的 USB 手机，请连接数据线、开启 USB 调试，并在手机确认本机电脑授权。");
+                if (devices.Length == 1) modeLabel.Text = await service.Direct.ConnectUsb(devices[0]);
+                else {
+                    var choices = new ContextMenuStrip();
+                    foreach (string serial in devices) { string selected = serial; choices.Items.Add(serial, null, async (s, e) => { try { modeLabel.Text = await service.Direct.ConnectUsb(selected); } catch (Exception error) { ShowError(error); } }); }
+                    choices.Show(usb, new Point(0, usb.Height));
+                }
+            } catch (Exception error) { ShowError(error); } finally { usb.Enabled = true; }
+        };
+        bluetooth.Click += async (sender, args) => {
+            bluetooth.Enabled = false;
+            try {
+                if (!service.Running || service.Direct == null) throw new Exception("请先启动接收端");
+                if (service.Direct.BluetoothEnabled) { service.Direct.StopBluetooth(); modeLabel.Text = "蓝牙连接已关闭"; bluetooth.Text = "蓝牙连接"; }
+                else { modeLabel.Text = await service.Direct.StartBluetooth(); bluetooth.Text = "关闭蓝牙"; }
+            } catch (Exception error) { ShowError(error); } finally { bluetooth.Enabled = true; }
+        };
         power.Click += async (sender, args) => {
             if (busy) return; busy = true; power.Enabled = false;
             try {

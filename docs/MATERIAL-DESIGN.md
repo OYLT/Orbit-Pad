@@ -1,6 +1,6 @@
 # Material Design 3 界面规范
 
-版本：0.3.0。应用自有界面统一采用 Material 3 深色视觉语言。
+版本：Android / Windows 0.5.0，浏览器 0.3.0 视觉基础。应用自有界面统一采用 Material 3 深色视觉语言。
 
 | 角色 | 色值 |
 | --- | --- |
@@ -23,4 +23,6 @@
 - 全屏右上角可直接进入设置。系统返回先关闭设置，再次返回询问是否断开。
 - 各平台的系统状态栏、输入法、系统网络权限对话框由操作系统提供。
 
-主要源文件：`public/styles.css`、`public/index.html`、`public/app.js`、`android/app/src/main/java/app/orbitpad/controller/MainActivity.java`、`desktop/OrbitPadReceiver.cs`。
+Android 0.5.0 使用 Rust 定义手柄布局与尺寸，Java Canvas 绘制原生按键、摇杆；设置使用 Android 原生对话框、选择框和滑块。浮动 Dock 提供主页、连接、主题和关于入口，全屏手柄隐藏 Dock；主页提供模板预览与布局编辑，连接页采用四种方式选择卡片。已在 Redmi K40 Pro+ 上检查四页、模板编辑、原生手柄、三指操作、映射与手感设置截图。
+
+主要源文件：`public/styles.css`、`public/index.html`、`public/app.js`、`android/rust/src/model.rs`、`android/app/src/main/java/app/orbitpad/controller/MainActivity.java`、`desktop/OrbitPadReceiver.cs`。
