@@ -2,13 +2,21 @@
 
 把手机变成 Windows 手柄，支持扫码、USB 数据线、蓝牙直连与局域网手动配对。
 
-## 最新版本：0.5.0
+## 本地原生手柄版（XInput）
+
+当前源码与本地构建已改用 ViGEmBus 创建 Xbox 360 虚拟手柄，双摇杆和 LT / RT 连续输出模拟量。自定义映射目标为手柄按键和摇杆轴，旧键盘配置升级时恢复原生对应关系并保留布局与手感设置。LT / RT 默认按住为全按，按住后向下滑动可减小力度。
+
+本地 Windows 包：`releases/OrbitPad-Receiver-Windows-x64-v0.5.0-xinput.zip`。首次完整解压后运行包内 `安装手柄驱动.cmd`，完成 ViGEmBus 安装后启动接收端；已安装驱动可直接启动。Android 本地构建为 `releases/OrbitPad-Android-v0.5.0.apk`。GitHub 上的历史 0.5.0 下载仍是键盘版，本次没有发布到 GitHub。
+
+详细依赖、测试与安装说明见 [原生手柄说明](docs/NATIVE-GAMEPAD.md)。
+
+## 已发布历史版本：0.5.0
 
 - [Android APK](https://github.com/OYLT/Orbit-Pad/releases/download/v0.5.0/OrbitPad-Android-v0.5.0.apk)
 - [Windows x64 接收端](https://github.com/OYLT/Orbit-Pad/releases/download/v0.5.0/OrbitPad-Receiver-Windows-x64-v0.5.0.zip)
 - [版本说明与 SHA-256 校验文件](https://github.com/OYLT/Orbit-Pad/releases/tag/v0.5.0)
 
-- 悬浮 Dock：主页、连接、主题、关于；主题页按计划保留空白。
+- 悬浮 Dock：主页、连接、主题、设置；设置页内含关于与 Liquid Glass 折射调节，主题页按计划保留空白。
 - 主页管理手柄模板，支持拖动控件、单独调整大小和显隐、修改映射，并保存、加载和删除自定义模板。
 - 连接页默认扫码，提供相机和图片识别，也可选择 USB、蓝牙或手动配对。
 - USB 使用数据线上的 ADB 通道；蓝牙使用配对后的加密 RFCOMM 通道，均由新版电脑接收端提供，不使用网络共享。
@@ -31,21 +39,21 @@ Android 8.0+，包含 ARM64 和 x86_64 Rust 原生库，沿用发布签名。局
 当前本地构建文件位于 `releases/`：
 
 - `OrbitPad-Android-v0.5.0.apk`：Android 8.0+，原生 Dock 四页、模板编辑、扫码及直连，Rust 控制核心。
-- `OrbitPad-Receiver-Windows-x64-v0.5.0.zip`：Windows 10 / 11 x64 便携版，带 USB / 蓝牙服务。完整解压后运行 `OrbitPadReceiver.exe`，自带 Node.js 和官方 Android platform-tools。
+- `OrbitPad-Receiver-Windows-x64-v0.5.0-xinput.zip`：Windows 10 / 11 x64 便携版，带 USB / 蓝牙服务。完整解压后运行 `OrbitPadReceiver.exe`，自带 Node.js 和官方 Android platform-tools。
 
-电脑软件启动后，在手机连接页扫码即可配对，手动输入地址和配对码也是可选方式。电脑软件最小化后进入系统托盘；关闭窗口停止服务并释放输入。依赖 Windows 自带的 .NET Framework 4.7.2+ 和 Windows PowerShell。
+电脑软件启动后，在手机连接页扫码即可配对，手动输入地址和配对码也是可选方式。电脑软件最小化后进入系统托盘；关闭窗口停止服务并释放输入。依赖 Windows 自带的 .NET Framework 4.7.2+ 和一次安装的 ViGEmBus 驱动。
 
 完整操作说明见 `docs/README-START.txt`。Windows 程序尚未商业代码签名。APK 已由本项目本地发布密钥签名并通过签名校验。历史版 0.3.0 在 Redmi K40 Pro+（Android 16）通过 45 个真机步骤；此前 0.2.1 已验证手机 A 键实际在 Windows 测试窗口产生空格按下与松开；具体游戏兼容性尚未验证。历史记录见 `docs/REDMI-TEST-REPORT.md`。
 
 ## 开始使用
 
 1. 电脑安装 Node.js 22 或以上版本。
-2. 在此文件夹运行 `npm install`，然后双击 **启动手柄.cmd**；也可以运行 `npm start`。
+2. 在此文件夹运行 `npm install`、`npm run setup:gamepad`，运行 **安装手柄驱动.cmd** 完成驱动安装，再双击 **启动手柄.cmd** 或运行 `npm start`。
 3. 电脑打开 http://localhost:3210 ，选择手机可访问的局域网地址。多个地址通常来自 Wi-Fi、网线、VPN 或虚拟网卡，请选择与手机同网段的地址。
 4. 手机与电脑连接同一个 Wi-Fi，用相机扫描电脑上的二维码；也可在手机浏览器输入电脑显示的局域网地址，再输入六位配对码。
 5. 手机点击 **开始控制**，横屏使用。将电脑前台切换到游戏窗口。
 
-`npm run preview` 启动不产生系统键盘输入的预览模式。电脑页面里的交互预览始终不会发送系统按键。
+`npm run preview` 启动不产生系统手柄输入的预览模式。电脑页面里的交互预览始终不会输出系统手柄输入。
 
 ## 界面设计
 
@@ -58,30 +66,30 @@ Android 使用原生平台控件和 Canvas 绘制手柄，浏览器手柄使用 
 - 手机横屏全屏手柄、双摇杆、方向键、ABXY、肩键、扳机、View / Menu。
 - Pointer Events 多点触控，支持摇杆与多个按键同时操作。
 - 六位配对码与二维码；WebSocket 局域网传输，显示往返延迟（RTT）。
-- 通用、竞速、平台跳跃预设；22 项自定义按键映射、本机配置保存、摇杆死区、显示比例与可用设备上的振动反馈。
-- Windows `SendInput` 扫描码键盘输入桥接；无需第三方虚拟手柄驱动。
+- 通用、竞速、平台跳跃预设；22 项原生手柄控件映射、本机配置保存、摇杆死区、显示比例与可用设备上的振动反馈。
+- ViGEmBus 原生 Xbox 360 / XInput 虚拟手柄；接收端自带客户端 DLL，驱动首次安装后使用。
 - 电脑接收暂停、恢复、设备断开、配对撤销、输入状态监测。
 - 切后台、失去焦点、连接关闭与约 2 秒通信超时自动释放按键；原生接收进程也有独立看门狗。
 - 一台电脑同时接受一台手机控制。
 
 ## 默认映射
 
-| 控件 | 电脑按键 |
+| 控件 | Windows 手柄输出 |
 | --- | --- |
-| 左摇杆 | W / A / S / D |
-| 右摇杆与方向键 | 方向键 |
-| A / B / X / Y | 空格 / E / R / F |
-| LB / RB | Q / C |
-| LT / RT | Ctrl / Shift |
-| View / Menu | Tab / Esc |
+| 左 / 右摇杆 | 左 / 右模拟摇杆，16 位轴值 |
+| 方向键 | 原生十字方向键 |
+| A / B / X / Y | Xbox ABXY |
+| LB / RB | 左 / 右肩键 |
+| LT / RT | 左 / 右扳机，0–255 |
+| View / Menu | Back / Start |
 
 ## 当前边界
 
 提供移动网页、Android APK 和 Windows 桌面接收端，尚无 iOS 安装包。Android 0.5.0 的 Dock、连接、手柄和设置均为本地原生界面，Rust 直接连接电脑接收端；网页仍可通过局域网 HTTP 地址直接使用。不同浏览器可能限制系统全屏、常亮和振动，Android App 提供原生横屏与常亮。控制电脑时必须保持所选的局域网、USB 或蓝牙通道。
 
-**输出是键盘输入，并非 Xbox / XInput / DirectInput 虚拟手柄。** 摇杆与扳机目前转换为数字按键，没有模拟量输出。支持键盘操作且接受模拟输入的游戏才能使用；某些游戏、反作弊系统或独占输入模式可能不接受这种方式。没有针对具体游戏做兼容性验证。
+**输出为 Xbox 360 / XInput 虚拟手柄。** 游戏须支持手柄操作。双摇杆保留模拟量并使用径向死区，扳机支持 0–255 力度；旧手机客户端的数字扳机兼容为 0 / 255。Wi-Fi、USB 和蓝牙均使用同一原生输出链路。
 
-若游戏以管理员身份运行，Windows 的输入权限隔离可能阻止普通权限接收端输入。必要时以相同权限运行接收端。API 行为参考 [Microsoft SendInput 文档](https://learn.microsoft.com/windows/win32/api/winuser/nf-winuser-sendinput)。
+ViGEmBus 上游已停止维护，本项目固定使用官方 1.22.0 驱动及 1.21.256 客户端包，并校验 SHA-256；详情见 [上游说明](https://docs.nefarius.at/projects/ViGEm/End-of-Life/)。驱动安装需按 Windows 提示授权。
 
 ## 网络与配对
 
@@ -94,6 +102,8 @@ Android 使用原生平台控件和 Canvas 绘制手柄，浏览器手柄使用 
 
 ## 开发与验证
 
+本地工作区增加了 Dock Liquid Glass 磨砂透镜、长按果冻回弹、拖动惯性形变与阻尼偏移，支持 HyperOS 3 手势区沉浸及设置页的四档折射强度。技术路线、质量开关和真机检查命令见 [实现说明](docs/LIQUID-GLASS.md)。
+
 ```powershell
 npm install
 npm test
@@ -101,11 +111,11 @@ npm run test:android
 npm run preview
 ```
 
-测试覆盖真实 HTTP / WebSocket 配对、错误输入、限流、配置切换、并发设备、暂停与恢复、撤销 token、断线 / 超时释放，以及 Windows 原生进程编译与无按键启动。测试使用内存输入桥接，不向其他应用发送测试按键。
+测试覆盖真实 HTTP / WebSocket 配对、错误输入、限流、配置切换、并发设备、暂停与恢复、撤销 token、断线 / 超时释放，以及 Windows XInput 实际读回、原生看门狗归零与设备移除。HTTP / WebSocket 测试使用内存手柄报告；Windows 集成测试创建独立虚拟手柄，并从 XInput 读回模拟值。未安装驱动时该硬件测试明确跳过。
 
 设置其他端口：`$env:PORT=3211; npm start`。此时手动打开对应端口；双击启动器默认使用 3210。
 
-文件结构：`public/` 手机和电脑界面；`server/` 配对与通信；`native/keyboard.ps1` Windows 输入桥接；`test/` 自动化测试。
+文件结构：`public/` 手机和电脑界面；`server/` 配对与通信；`native/GamepadBridge.cs` Windows 原生手柄桥接；`test/` 自动化测试。
 
 ## 构建安装包
 
@@ -118,6 +128,6 @@ Android 构建需要 Windows x64、JDK 17+ 和 Python 3。可以用 `JAVA_HOME` 
 
 Android 发布签名保存在 `.build-tools/orbitpad-release.jks` 和 `.build-tools/android-signing.json`，仅供本机构建、未打入发布包。请妥善备份，后续升级同一 App 需要使用同一密钥。`.build-tools/` 已排除于版本控制。
 
-Windows 构建使用系统 .NET Framework C# 编译器，将本机 Node.js 运行环境、生产依赖和接收端资源打入便携包；脚本会先运行独立自检，再生成 ZIP。运行时 Node.js 进程受桌面进程监护，桌面程序异常退出后也会停止接收。
+Windows 构建使用系统 .NET Framework C# 编译器，将本机 Node.js 运行环境、生产依赖和接收端资源打入便携包；脚本先准备原生手柄组件和驱动安装包，运行原生模式自检后生成 ZIP。无驱动的构建机可使用 `powershell -File scripts/build-windows.ps1 -PreviewSelfTest` 仅运行预览自检。运行时 Node.js 进程受桌面进程监护，桌面程序异常退出后也会停止接收。
 
 `android/` 为手机原生项目，`desktop/` 为 Windows 窗口源码，`scripts/` 为可重复运行的构建脚本。发布目录包含 APK 签名报告、Windows 自检报告和 SHA-256 校验文件。

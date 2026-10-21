@@ -3,6 +3,7 @@ import argparse
 import base64
 import hashlib
 import json
+import os
 import pathlib
 import re
 import subprocess
@@ -15,7 +16,9 @@ parser.add_argument('--serial', required=True)
 parser.add_argument('--address', required=True)
 parser.add_argument('--port', type=int, default=3215)
 parser.add_argument('--output', default='artifacts/redmi-test')
-parser.add_argument('--suite', choices=['baseline', 'settings', 'shell', 'usb', 'camera', 'bluetooth'], default='baseline')
+parser.add_argument('--suite', choices=['baseline', 'settings', 'shell', 'usb', 'camera', 'bluetooth', 'native'], default='baseline')
+parser.add_argument('--native-output', action='store_true', help='Verify each phase against the real Windows XInput device.')
+parser.add_argument('--xinput-slot', type=int, choices=range(4), default=0)
 parser.add_argument('--bluetooth-name', default='LAPTOP-MHB9SRM0')
 args = parser.parse_args()
 root = pathlib.Path(__file__).resolve().parents[1]
@@ -27,8 +30,28 @@ def status():
     with opener.open(base + '/api/host', timeout=1.5) as response:
         return json.load(response)
 
+def active_controls(report):
+    masks = {'up': 1, 'down': 2, 'left': 4, 'right': 8, 'start': 16, 'select': 32,
+             'l3': 64, 'r3': 128, 'lb': 256, 'rb': 512, 'a': 4096, 'b': 8192, 'x': 16384, 'y': 32768}
+    controls = {name for name, bit in masks.items() if report['buttons'] & bit}
+    if report['leftTrigger']: controls.add('lt')
+    if report['rightTrigger']: controls.add('rt')
+    for field, positive, negative in [('leftX','moveRight','moveLeft'), ('leftY','moveUp','moveDown'),
+                                      ('rightX','lookRight','lookLeft'), ('rightY','lookUp','lookDown')]:
+        if report[field]: controls.add(positive if report[field] > 0 else negative)
+    return controls
+
 host = status()
-assert host['mode'] == 'preview', 'Touch suite must use a dry-run receiver.'
+assert host['mode'] == ('xinput' if args.native_output else 'preview'), 'Receiver mode must match the explicit test output mode.'
+if args.native_output:
+    probe = output / 'XInputProbe.exe'
+    compiler = pathlib.Path(os.environ['WINDIR']) / 'Microsoft.NET/Framework64/v4.0.30319/csc.exe'
+    subprocess.run([str(compiler), '/nologo', '/target:exe', '/platform:x64', f'/out:{probe}', str(root / 'test/GamepadProbe.cs')], check=True)
+
+def read_xinput():
+    states = json.loads(subprocess.check_output([str(probe)], text=True, creationflags=subprocess.CREATE_NO_WINDOW))
+    return states[args.xinput_slot]
+
 adb = ['adb', '-s', args.serial]
 def prop(name):
     return subprocess.check_output([*adb, 'shell', 'getprop', name], text=True).strip()
@@ -77,13 +100,19 @@ for line in device.stdout:
         samples = []
         while True:
             actual = status()
-            samples.append({'keys': actual['keys'], 'connected': actual['connected'], 'axes': actual['axes'], 'buttons': actual['buttons']})
-            passed = set(actual['keys']) == expected and actual['connected'] == connected
+            samples.append({'report': actual['report'], 'connected': actual['connected'], 'axes': actual['axes'], 'buttons': actual['buttons']})
+            passed = active_controls(actual['report']) == expected and actual['connected'] == connected
+            if stage == 'native-lt-half': passed = passed and abs(actual['report']['leftTrigger'] - 128) <= 2
+            if stage == 'native-rt-quarter': passed = passed and abs(actual['report']['rightTrigger'] - 64) <= 2
+            if args.native_output:
+                native = read_xinput()
+                samples[-1]['xinput'] = native
+                passed = passed and native == actual['report']
             if passed or time.monotonic() >= deadline:
                 break
             time.sleep(.035)
         phases.append({'phase': stage, 'passed': passed, 'expected': sorted(expected), 'expectedConnected': connected, 'samples': samples, 'emittedMs': bundle.get('orbit_emitted_ms'), 'receivedMs': round(time.time()*1000)})
-        print(f'{"PASS" if passed else "FAIL"}: {stage}; keys={actual["keys"]}; connected={actual["connected"]}', flush=True)
+        print(f'{"PASS" if passed else "FAIL"}: {stage}; report={actual["report"]}; connected={actual["connected"]}', flush=True)
         if stage in ['wrong-code-rejected', 'landscape-awake-connected', 'three-finger-dual-stick-and-a', 'material-settings-mapping', 'material-settings-feel', 'settings-back-preserves-connection', 'native-settings-saved', 'native-settings-restored', 'shell-home', 'shell-theme', 'shell-about', 'shell-scan-default', 'shell-editor-drag', 'shell-template-loaded', 'shell-usb-option', 'shell-bluetooth-option']:
             shot = output / (stage + '.png')
             with shot.open('wb') as file:
@@ -104,7 +133,9 @@ report = {'device': 'Redmi K40 Pro+', 'model': prop('ro.product.model'), 'serial
           'apkSha256': hashlib.sha256((root / f'releases/OrbitPad-Android-v{version}.apk').read_bytes()).hexdigest(),
           'transport': {'usb': 'USB', 'bluetooth': 'Bluetooth RFCOMM', 'camera': 'none'}.get(args.suite,'Wi-Fi'), 'address': args.address,
           'suite': args.suite,
-          'receiverMode': host['mode'], 'ok': passed, 'phases': phases, 'instrumentationExitCode': exit_code}
+          'receiverMode': host['mode'], 'xinputVerified': args.native_output,
+          'xinputSlot': args.xinput_slot if args.native_output else None,
+          'ok': passed, 'phases': phases, 'instrumentationExitCode': exit_code}
 (output / 'report.json').write_text(json.dumps(report, ensure_ascii=False, indent=2), encoding='utf-8')
 print(f'{len(phases)} phases; result={"PASS" if passed else "FAIL"}', flush=True)
 if not passed:

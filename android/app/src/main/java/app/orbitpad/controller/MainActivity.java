@@ -24,6 +24,8 @@ import android.view.HapticFeedbackConstants;
 import android.view.MotionEvent;
 import android.view.View;
 import android.view.WindowManager;
+import android.view.WindowInsets;
+import android.view.WindowInsetsController;
 import android.view.inputmethod.InputMethodManager;
 import android.widget.*;
 import org.json.JSONArray;
@@ -91,13 +93,15 @@ public final class MainActivity extends Activity {
         e.setOnFocusChangeListener((v,focus)->e.setBackground(rounded(BG,focus?PRIMARY:OUTLINE,12)));return e;
     }
     @Override public void onCreate(Bundle state) {
-        super.onCreate(state);getWindow().setStatusBarColor(BG);getWindow().setNavigationBarColor(BG);
+        super.onCreate(state);edgeToEdge();
         try {
             String saved=getPreferences(0).getString("rust_settings",null);
             if(saved!=null){JSONObject c=command("configure");put(c,"settings",new JSONObject(saved));call(c);}
         } catch(Exception ignored) { /* Invalid saved settings leave Rust defaults intact. */ }
         settings=call("snapshot").optJSONObject("settings");showShell(0,null);
+        if(state!=null&&shell!=null)shell.restoreState(state);
     }
+    @Override protected void onSaveInstanceState(Bundle state){if(shell!=null)shell.saveState(state);super.onSaveInstanceState(state);}
     private void showConnection(String error) {
         disconnectTransport();showShell(1,error);
     }
@@ -106,7 +110,7 @@ public final class MainActivity extends Activity {
         if(settingsDialog!=null)settingsDialog.dismiss();
         snapshot=call("release");JSONObject c=command("settings");put(c,"open",true);snapshot=call(c);
         getWindow().clearFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);
-        getWindow().getDecorView().setSystemUiVisibility(View.SYSTEM_UI_FLAG_LAYOUT_STABLE);
+        edgeToEdge();
         setRequestedOrientation(ActivityInfo.SCREEN_ORIENTATION_UNSPECIFIED);
         shell=new AppShell(this,page,error);setContentView(shell.view);
     }
@@ -155,6 +159,22 @@ public final class MainActivity extends Activity {
         if(config==null)return;JSONObject c=command("configure");put(c,"settings",config);JSONObject result=call(c);
         if(result.has("error")){Toast.makeText(this,result.optString("error"),Toast.LENGTH_LONG).show();return;}
         settings=result.optJSONObject("settings");snapshot=result;getPreferences(0).edit().putString("template_name",name).putString("rust_settings",settings.toString()).apply();
+    }
+    /** Keep the system gesture handle visible over app content, including HyperOS 3. */
+    private void edgeToEdge(){
+        android.view.Window window=getWindow();
+        window.addFlags(WindowManager.LayoutParams.FLAG_DRAWS_SYSTEM_BAR_BACKGROUNDS);
+        window.clearFlags(WindowManager.LayoutParams.FLAG_TRANSLUCENT_STATUS|WindowManager.LayoutParams.FLAG_TRANSLUCENT_NAVIGATION|WindowManager.LayoutParams.FLAG_FULLSCREEN);
+        window.setStatusBarColor(android.graphics.Color.TRANSPARENT);
+        window.setNavigationBarColor(android.graphics.Color.TRANSPARENT);
+        if(Build.VERSION.SDK_INT>=28)window.setNavigationBarDividerColor(android.graphics.Color.TRANSPARENT);
+        if(Build.VERSION.SDK_INT>=29){window.setNavigationBarContrastEnforced(false);window.setStatusBarContrastEnforced(false);}
+        if(Build.VERSION.SDK_INT>=30){
+            window.getDecorView().setSystemUiVisibility(0);
+            window.setDecorFitsSystemWindows(false);
+            WindowInsetsController controller=window.getInsetsController();
+            if(controller!=null){controller.show(WindowInsets.Type.systemBars());controller.setSystemBarsAppearance(0,WindowInsetsController.APPEARANCE_LIGHT_STATUS_BARS|WindowInsetsController.APPEARANCE_LIGHT_NAVIGATION_BARS);}
+        }else window.getDecorView().setSystemUiVisibility(View.SYSTEM_UI_FLAG_LAYOUT_STABLE|View.SYSTEM_UI_FLAG_LAYOUT_FULLSCREEN|View.SYSTEM_UI_FLAG_LAYOUT_HIDE_NAVIGATION);
     }
     private void immersive() {
         getWindow().getDecorView().setSystemUiVisibility(View.SYSTEM_UI_FLAG_IMMERSIVE_STICKY|View.SYSTEM_UI_FLAG_FULLSCREEN|View.SYSTEM_UI_FLAG_HIDE_NAVIGATION|View.SYSTEM_UI_FLAG_LAYOUT_FULLSCREEN|View.SYSTEM_UI_FLAG_LAYOUT_HIDE_NAVIGATION|View.SYSTEM_UI_FLAG_LAYOUT_STABLE);
@@ -226,13 +246,16 @@ public final class MainActivity extends Activity {
             b.setOnClickListener(v->{JSONObject c=command("preset");put(c,"name",id);JSONObject preset=call(c);put(settings,"mapping",preset.optJSONObject("mapping"));put(settings,"preset",id);saveSettings();mappingSettings(page);});}
         add(page,presets,12);
         String[] controls={"a","b","x","y","lb","rb","lt","rt","select","start","up","down","left","right","moveUp","moveDown","moveLeft","moveRight","lookUp","lookDown","lookLeft","lookRight"};
-        String[] labels={"A · 跳跃","B · 交互","X · 装填","Y · 动作","LB · 左肩键","RB · 右肩键","LT · 左扳机","RT · 右扳机","View · 背包","Menu · 暂停","方向键 ↑","方向键 ↓","方向键 ←","方向键 →","左摇杆 ↑","左摇杆 ↓","左摇杆 ←","左摇杆 →","右摇杆 ↑","右摇杆 ↓","右摇杆 ←","右摇杆 →"};
-        ArrayList<String> keys=new ArrayList<>();for(char k='A';k<='Z';k++)keys.add(""+k);for(char k='0';k<='9';k++)keys.add(""+k);
-        java.util.Collections.addAll(keys,"Space","Enter","Escape","Tab","Shift","Control","Alt","ArrowUp","ArrowDown","ArrowLeft","ArrowRight");
+        String[] labels={"A","B","X","Y","LB · 左肩键","RB · 右肩键","LT · 左扳机","RT · 右扳机","View","Menu","方向键 ↑","方向键 ↓","方向键 ←","方向键 →","左摇杆 ↑","左摇杆 ↓","左摇杆 ←","左摇杆 →","右摇杆 ↑","右摇杆 ↓","右摇杆 ←","右摇杆 →"};
+        add(page,text("Xbox 360 / XInput 原生手柄；LT / RT 按住后向下滑动可减小扳机力度。",13,MUTED),12);
+        ArrayList<String> keys=new ArrayList<>(java.util.Arrays.asList(controls));
+        java.util.Collections.addAll(keys,"l3","r3","none");
+        ArrayList<String> outputLabels=new ArrayList<>(java.util.Arrays.asList(labels));
+        java.util.Collections.addAll(outputLabels,"L3 · 左摇杆按下","R3 · 右摇杆按下","禁用");
         for(int i=0;i<controls.length;i++){
             final String control=controls[i];LinearLayout row=new LinearLayout(this);row.setGravity(Gravity.CENTER_VERTICAL);
             row.addView(text(labels[i],14,FG),new LinearLayout.LayoutParams(0,dp(48),1));Spinner spinner=new Spinner(this);
-            spinner.setContentDescription(labels[i]+"映射");ArrayAdapter<String> adapter=new ArrayAdapter<>(this,android.R.layout.simple_spinner_dropdown_item,keys);spinner.setAdapter(adapter);
+            spinner.setContentDescription(labels[i]+"映射");ArrayAdapter<String> adapter=new ArrayAdapter<>(this,android.R.layout.simple_spinner_dropdown_item,outputLabels);spinner.setAdapter(adapter);
             spinner.setSelection(keys.indexOf(settings.optJSONObject("mapping").optString(control)));row.addView(spinner,new LinearLayout.LayoutParams(dp(140),dp(48)));
             spinner.setOnItemSelectedListener(new AdapterView.OnItemSelectedListener(){public void onNothingSelected(AdapterView<?> p){}public void onItemSelected(AdapterView<?> p,View v,int position,long id){
                 String key=keys.get(position);if(!key.equals(settings.optJSONObject("mapping").optString(control))){put(settings.optJSONObject("mapping"),control,key);put(settings,"preset","custom");saveSettings();}}});add(page,row,4);
@@ -331,7 +354,7 @@ public final class MainActivity extends Activity {
         }
     }
 
-    @Override public void onWindowFocusChanged(boolean focus){super.onWindowFocusChanged(focus);JSONObject c=command("focus");put(c,"value",focus);snapshot=call(c);if(focus&&controllerVisible)immersive();}
+    @Override public void onWindowFocusChanged(boolean focus){super.onWindowFocusChanged(focus);JSONObject c=command("focus");put(c,"value",focus);snapshot=call(c);if(focus){if(controllerVisible||editing)immersive();else edgeToEdge();}}
     @Override public void onBackPressed(){
         if(editing){showShell(0,null);return;}
         if(!controllerVisible){if(checking){disconnectTransport();if(shell!=null)shell.update(snapshot);}else if(shell==null||!shell.back())super.onBackPressed();return;}
@@ -339,6 +362,6 @@ public final class MainActivity extends Activity {
             .setPositiveButton("断开",(dialog,which)->showConnection(null)).setNegativeButton("继续游戏",null).show();d.getWindow().setBackgroundDrawable(rounded(SURFACE,0,28));d.getButton(-1).setTextColor(PRIMARY);d.getButton(-2).setTextColor(PRIMARY);
     }
     @Override protected void onPause(){resumed=false;handler.removeCallbacks(poll);snapshot=call("pause");super.onPause();}
-    @Override protected void onResume(){super.onResume();snapshot=call("resume");resumed=true;handler.removeCallbacks(poll);handler.post(poll);if(controllerVisible)immersive();}
+    @Override protected void onResume(){super.onResume();snapshot=call("resume");resumed=true;handler.removeCallbacks(poll);handler.post(poll);if(controllerVisible||editing)immersive();else edgeToEdge();}
     @Override protected void onDestroy(){handler.removeCallbacks(poll);disconnectTransport();super.onDestroy();}
 }

@@ -41,7 +41,7 @@ internal sealed class ReceiverService : IDisposable {
         if (String.IsNullOrWhiteSpace(line)) return;
         lock (logLock) { logTail = (logTail + "\n" + line); if (logTail.Length > 6000) logTail = logTail.Substring(logTail.Length - 6000); }
     }
-    public async Task Start() {
+    public async Task Start(bool preview = false) {
         if (Running) return;
         string runtime = Path.Combine(root, "runtime", "node.exe");
         string server = Path.Combine(root, "app", "server", "index.js");
@@ -53,7 +53,7 @@ internal sealed class ReceiverService : IDisposable {
             catch (SocketException) { }
         }
         if (Port == 0) throw new Exception("3210–3230 端口均被占用，请关闭其他接收端后重试。");
-        var start = new ProcessStartInfo(runtime, "\"" + server + "\"") {
+        var start = new ProcessStartInfo(runtime, "\"" + server + "\"" + (preview ? " --dry-run" : "")) {
             WorkingDirectory = Path.Combine(root, "app"), UseShellExecute = false,
             CreateNoWindow = true, RedirectStandardOutput = true, RedirectStandardError = true,
             StandardOutputEncoding = Encoding.UTF8, StandardErrorEncoding = Encoding.UTF8
@@ -75,7 +75,7 @@ internal sealed class ReceiverService : IDisposable {
             } catch (HttpRequestException) { } catch (TaskCanceledException) { }
             await Task.Delay(150);
         }
-        throw new Exception("接收端启动超时。请检查 PowerShell 是否可用，并重试。" + logTail);
+        throw new Exception("接收端启动超时。请检查 ViGEmBus 驱动是否已安装，并重试。" + logTail);
     }
     public async Task<Dictionary<string, object>> Status() {
         string raw = await http.GetStringAsync(BaseUrl + "/api/host");
@@ -233,7 +233,7 @@ internal sealed class ReceiverForm : Form {
         pairCode.Text = "— — — — — —"; Cell(left, pairCode, 5);
         statusLabel.AutoSize = true; statusLabel.ForeColor = Muted; statusLabel.Text = "● 正在启动接收端…"; Cell(left, statusLabel, 6);
         deviceLabel.AutoSize = true; deviceLabel.ForeColor = TextColor; deviceLabel.Text = "等待手机连接"; Cell(left, deviceLabel, 7);
-        Cell(left, Label("实时键盘输入", 9, Muted), 8);
+        Cell(left, Label("实时手柄输入", 9, Muted), 8);
         keysLabel.Dock = DockStyle.Fill; keysLabel.ForeColor = Mint; keysLabel.Font = new Font("Consolas", 12);
         keysLabel.Text = "等待操作"; keysLabel.AutoEllipsis = true; Cell(left, keysLabel, 9);
         connection.Controls.Add(left); root.Controls.Add(connection, 0, 1);
@@ -261,7 +261,7 @@ internal sealed class ReceiverForm : Form {
         var copy = ConfigureButton(new MaterialButton(), "复制地址"); actions.Controls.Add(copy);
         var console = ConfigureButton(new MaterialButton(), "高级控制台"); actions.Controls.Add(console); Cell(root, actions, 2, 2);
         modeLabel.AutoSize = true; modeLabel.ForeColor = Muted; modeLabel.Font = new Font("Microsoft YaHei UI", 8);
-        modeLabel.Text = "键盘映射模式 · 自带运行环境 · 最小化保留后台，关闭窗口停止接收"; Cell(root, modeLabel, 3, 2);
+        modeLabel.Text = "Xbox 360 / XInput · 原生手柄驱动 · 最小化保留后台，关闭窗口停止接收"; Cell(root, modeLabel, 3, 2);
         Controls.Add(root);
 
         networks.SelectedIndexChanged += async (sender, args) => { try { await UpdateQr(); } catch { } };
@@ -367,7 +367,7 @@ internal sealed class ReceiverForm : Form {
         statusLabel.Text = "● " + (String.IsNullOrEmpty(error) ? hint : error);
         statusLabel.ForeColor = !String.IsNullOrEmpty(error) || !ready ? Color.SandyBrown : Mint;
         deviceLabel.Text = connected ? "已连接：" + Convert.ToString(state["device"]) : "等待手机连接";
-        var keys = ((System.Collections.IEnumerable)state["keys"]).Cast<object>().ToArray(); keysLabel.Text = keys.Length == 0 ? "等待操作" : String.Join("  +  ", keys);
+        var keys = ((System.Collections.IEnumerable)state["inputs"]).Cast<object>().ToArray(); keysLabel.Text = keys.Length == 0 ? "等待操作" : String.Join("  +  ", keys);
         pause.Text = paused ? "恢复输入" : "暂停输入"; pause.Enabled = reset.Enabled = true;
         power.Text = "停止接收";
         await UpdateQr();
@@ -376,8 +376,8 @@ internal sealed class ReceiverForm : Form {
 
 internal static class Program {
     [STAThread] private static void Main(string[] args) {
-        if (args.Length == 2 && args[0] == "--self-test") {
-            Environment.ExitCode = SelfTest(args[1]).GetAwaiter().GetResult();
+        if (args.Length == 2 && (args[0] == "--self-test" || args[0] == "--self-test-preview")) {
+            Environment.ExitCode = SelfTest(args[1], args[0] == "--self-test-preview").GetAwaiter().GetResult();
             return;
         }
         bool first;
@@ -387,12 +387,13 @@ internal static class Program {
             Application.Run(new ReceiverForm());
         }
     }
-    private static async Task<int> SelfTest(string destination) {
+    private static async Task<int> SelfTest(string destination, bool preview) {
         var result = new Dictionary<string, object>(); var service = new ReceiverService();
         try {
-            await service.Start(); var state = await service.Status();
+            await service.Start(preview); var state = await service.Status();
+            result["mode"] = state["mode"]; result["nativeGamepadTested"] = !preview;
             result["ready"] = state["ready"]; result["version"] = state["version"]; result["port"] = service.Port;
-            if (!Convert.ToBoolean(state["ready"])) throw new Exception("Native keyboard bridge did not become ready");
+            if (!Convert.ToBoolean(state["ready"])) throw new Exception("Native gamepad bridge did not become ready");
             await service.Command("pause", new { paused = true });
             if (!Convert.ToBoolean((await service.Status())["paused"])) throw new Exception("Pause failed");
             await service.Command("pause", new { paused = false });
@@ -406,7 +407,7 @@ internal static class Program {
                 }
                 result["qr"] = "PNG 360x360";
             }
-            result["keys"] = state["keys"]; result["ok"] = true;
+            result["inputs"] = state["inputs"]; result["ok"] = true;
         } catch (Exception error) { result["ok"] = false; result["error"] = error.ToString(); }
         await service.Stop(); result["stopped"] = !service.Running; service.Dispose();
         File.WriteAllText(destination, new JavaScriptSerializer().Serialize(result), new UTF8Encoding(false));

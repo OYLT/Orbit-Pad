@@ -175,8 +175,9 @@ impl Engine {
             }
             "release" => c.release(),
             "configure" => {
-                let settings: Settings = serde_json::from_value(command["settings"].clone())
+                let mut settings: Settings = serde_json::from_value(command["settings"].clone())
                     .map_err(|_| "设置格式无效")?;
+                settings.migrate_keyboard_mapping();
                 settings.validate()?;
                 c.release();
                 if settings.mapping != c.settings.mapping

@@ -1,16 +1,16 @@
-import { KeyboardBridge } from './input.js';
+import { GamepadBridge } from './input.js';
 import { createReceiver } from './receiver.js';
 import { spawn } from 'node:child_process';
 
 const dryRun = process.argv.includes('--dry-run');
 const port = Number(process.env.PORT || 3210);
 if (!Number.isInteger(port) || port < 1 || port > 65535) throw new Error('PORT 必须在 1–65535 之间');
-const input = new KeyboardBridge({ dryRun });
+const input = new GamepadBridge({ dryRun });
 input.start();
 const receiver = createReceiver({ input, port, ownerToken: process.env.ORBIT_OWNER_TOKEN || '', onShutdown: shutdown });
 try {
   const result = await receiver.start();
-  console.log(`\n  ORBIT PAD  /  手机无线手柄\n\n  电脑管理端 → http://localhost:${result.port}\n  模式 → ${dryRun ? '预览（不会发送键盘输入）' : 'Windows 键盘映射'}\n`);
+  console.log(`\n  ORBIT PAD  /  手机无线手柄\n\n  电脑管理端 → http://localhost:${result.port}\n  模式 → ${dryRun ? '预览（不会输出系统手柄输入）' : 'Xbox 360 原生手柄 / XInput'}\n`);
   for (const ip of result.addresses) console.log(`  手机连接 → http://${ip}:${result.port}`);
   console.log('\n  手机和电脑请连接同一个 Wi-Fi。按 Ctrl+C 退出。\n');
   if (process.argv.includes('--open') && process.platform === 'win32') {

@@ -12,7 +12,7 @@ RELEASES = ROOT / 'releases'
 manifest = ET.parse(ROOT / 'android/app/src/main/AndroidManifest.xml').getroot()
 version = manifest.attrib['{http://schemas.android.com/apk/res/android}versionName']
 apk = RELEASES / f'OrbitPad-Android-v{version}.apk'
-archive = RELEASES / 'OrbitPad-Receiver-Windows-x64-v0.5.0.zip'
+archive = RELEASES / 'OrbitPad-Receiver-Windows-x64-v0.5.0-xinput.zip'
 with zipfile.ZipFile(apk) as z:
     assert z.testzip() is None
     assert {'AndroidManifest.xml', 'classes.dex', 'resources.arsc', 'assets/ZXING-LICENSE.txt'}.issubset(z.namelist())
@@ -33,7 +33,7 @@ folder = destination / 'OrbitPad-Receiver-Windows-x64'
 required = ['OrbitPadReceiver.exe', 'runtime/node.exe', 'runtime/NODE-LICENSE.txt',
             'runtime/platform-tools/adb.exe', 'runtime/platform-tools/AdbWinApi.dll',
             'runtime/platform-tools/AdbWinUsbApi.dll', 'runtime/platform-tools/NOTICE.txt', 'app/server/index.js',
-            'app/public/index.html', 'app/native/keyboard.ps1', 'app/node_modules/ws/package.json', 'README-START.txt']
+            'app/public/index.html', 'app/native/bin/OrbitPadGamepad.exe', 'app/native/bin/ViGEmClient.dll', 'drivers/ViGEmBus_1.22.0_x64_x86_arm64.exe', '安装手柄驱动.cmd', 'app/node_modules/ws/package.json', 'README-START.txt']
 for name in required:
     assert (folder / name).is_file(), name
 report = RELEASES / 'windows-extracted-self-test.json'

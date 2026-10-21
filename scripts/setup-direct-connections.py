@@ -1,6 +1,7 @@
 """Fetch official Android platform tools for the desktop's physical USB adapter."""
 from pathlib import Path
 import hashlib
+import binascii
 import shutil
 import urllib.request
 import zipfile
@@ -23,6 +24,11 @@ with zipfile.ZipFile(archive) as z:
             destination.mkdir(parents=True,exist_ok=True)
         else:
             destination.parent.mkdir(parents=True,exist_ok=True)
+            # adb.exe can be held open by an existing ADB server. Identical
+            # verified SDK files need no replacement during a receiver build.
+            if destination.is_file() and destination.stat().st_size == item.file_size:
+                if binascii.crc32(destination.read_bytes()) & 0xffffffff == item.CRC:
+                    continue
             with z.open(item) as source, destination.open('wb') as output:
                 shutil.copyfileobj(source,output)
 print('Official Android platform tools ready.')

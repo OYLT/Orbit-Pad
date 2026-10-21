@@ -30,31 +30,6 @@ pub const CONTROLS: [&str; 22] = [
     "lookLeft",
     "lookRight",
 ];
-const KEYS: [&str; 22] = [
-    "Space",
-    "E",
-    "R",
-    "F",
-    "Q",
-    "C",
-    "Control",
-    "Shift",
-    "Tab",
-    "Escape",
-    "ArrowUp",
-    "ArrowDown",
-    "ArrowLeft",
-    "ArrowRight",
-    "W",
-    "S",
-    "A",
-    "D",
-    "ArrowUp",
-    "ArrowDown",
-    "ArrowLeft",
-    "ArrowRight",
-];
-
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Address(pub SocketAddrV4);
 impl Address {
@@ -140,7 +115,7 @@ impl Default for Placement {
     }
 }
 
-pub fn valid_key(key: &str) -> bool {
+fn legacy_key(key: &str) -> bool {
     (key.len() == 1
         && key
             .bytes()
@@ -161,6 +136,10 @@ pub fn valid_key(key: &str) -> bool {
         .contains(&key)
 }
 
+pub fn valid_key(key: &str) -> bool {
+    CONTROLS.contains(&key) || ["l3", "r3", "none"].contains(&key)
+}
+
 #[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(default, deny_unknown_fields)]
 pub struct Settings {
@@ -176,7 +155,7 @@ impl Default for Settings {
         Self {
             mapping: CONTROLS
                 .into_iter()
-                .zip(KEYS)
+                .zip(CONTROLS)
                 .map(|(a, b)| (a.into(), b.into()))
                 .collect(),
             deadzone: 0.24,
@@ -188,6 +167,17 @@ impl Default for Settings {
     }
 }
 impl Settings {
+    // Preserve saved layouts and feel settings when upgrading keyboard templates.
+    pub fn migrate_keyboard_mapping(&mut self) {
+        if self.mapping.len() == CONTROLS.len()
+            && CONTROLS
+                .iter()
+                .all(|c| self.mapping.get(*c).is_some_and(|k| legacy_key(k)))
+        {
+            self.mapping = Self::default().mapping;
+            self.preset = "general".into();
+        }
+    }
     pub fn validate(&self) -> Result<(), String> {
         if self.mapping.len() != CONTROLS.len()
             || !CONTROLS
@@ -221,16 +211,7 @@ impl Settings {
         let mut settings = Self::default();
         let changes: &[(&str, &str)] = match name {
             "general" => &[],
-            "racing" => &[("b", "R"), ("x", "E"), ("y", "Q"), ("rt", "W"), ("lt", "S")],
-            "platform" => &[
-                ("b", "X"),
-                ("x", "Z"),
-                ("y", "C"),
-                ("moveUp", "ArrowUp"),
-                ("moveDown", "ArrowDown"),
-                ("moveLeft", "ArrowLeft"),
-                ("moveRight", "ArrowRight"),
-            ],
+            "racing" | "platform" => &[],
             _ => return Err("未知预设".into()),
         };
         for (control, key) in changes {
@@ -245,12 +226,14 @@ impl Settings {
 pub struct InputState {
     pub buttons: BTreeSet<String>,
     pub axes: [f32; 4],
+    pub triggers: [f32; 2],
 }
 #[derive(Clone)]
 struct Touch {
     control: String,
     x: f32,
     y: f32,
+    start_y: f32,
 }
 #[derive(Default)]
 pub struct Input {
@@ -297,6 +280,7 @@ impl Input {
                             control: control.into(),
                             x,
                             y,
+                            start_y: y,
                         },
                     );
                 }
@@ -319,6 +303,12 @@ impl Input {
                 let index = if touch.control == "move" { 0 } else { 2 };
                 state.axes[index] = touch.x / radius;
                 state.axes[index + 1] = touch.y / radius;
+            } else if touch.control == "lt" || touch.control == "rt" {
+                let index = usize::from(touch.control == "rt");
+                // Press starts at full travel; dragging down reduces pressure.
+                let value = (1.0 - (touch.y - touch.start_y) / 2.0).clamp(0.0, 1.0);
+                state.triggers[index] = state.triggers[index].max(value);
+                state.buttons.insert(touch.control.clone());
             } else {
                 state.buttons.insert(touch.control.clone());
             }
@@ -331,11 +321,11 @@ pub fn layout(settings: &Settings) -> Value {
     let scale = f32::from(settings.size) / 100.0;
     let controls = [
         ("lb", "LB", "LB", 90., 92., 132., 50.),
-        ("lt", "LT", "LT CTRL", 242., 92., 132., 50.),
+        ("lt", "LT", "LT 模拟扳机", 242., 92., 132., 50.),
         ("rb", "RB", "RB", 910., 92., 132., 50.),
-        ("rt", "RT", "RT SHIFT", 758., 92., 132., 50.),
-        ("move", "L", "左摇杆，映射 WASD", 154., 237., 172., 172.),
-        ("look", "R", "右摇杆，映射方向键", 650., 331., 150., 150.),
+        ("rt", "RT", "RT 模拟扳机", 758., 92., 132., 50.),
+        ("move", "L", "左摇杆，模拟量输出", 154., 237., 172., 172.),
+        ("look", "R", "右摇杆，模拟量输出", 650., 331., 150., 150.),
         ("up", "↑", "方向上", 345., 273., 52., 52.),
         ("down", "↓", "方向下", 345., 381., 52., 52.),
         ("left", "←", "方向左", 291., 327., 52., 52.),
@@ -367,6 +357,44 @@ pub fn layout(settings: &Settings) -> Value {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn keyboard_settings_migrate_without_losing_layout_or_feel() {
+        let mut settings = Settings {
+            mapping: CONTROLS
+                .into_iter()
+                .map(|c| (c.into(), "Space".into()))
+                .collect(),
+            deadzone: 0.31,
+            size: 90,
+            ..Settings::default()
+        };
+        settings.layout.insert(
+            "a".into(),
+            Placement {
+                hidden: true,
+                ..Placement::default()
+            },
+        );
+        settings.migrate_keyboard_mapping();
+        settings.validate().unwrap();
+        assert_eq!(settings.mapping, Settings::default().mapping);
+        assert_eq!(settings.deadzone, 0.31);
+        assert_eq!(settings.size, 90);
+        assert!(settings.layout["a"].hidden);
+    }
+    #[test]
+    fn triggers_support_continuous_travel_and_independent_release() {
+        let mut input = Input::default();
+        input.touch(0, "down", "lt", 0., 0.).unwrap();
+        input.touch(1, "down", "rt", 0., 0.).unwrap();
+        assert_eq!(input.state().triggers, [1., 1.]);
+        input.touch(0, "move", "lt", 0., 1.).unwrap();
+        assert_eq!(input.state().triggers, [0.5, 1.]);
+        input.touch(0, "up", "lt", 0., 1.).unwrap();
+        assert_eq!(input.state().triggers, [0., 1.]);
+        input.clear();
+        assert_eq!(input.state(), InputState::default());
+    }
     #[test]
     fn qr_codes_only_accept_receiver_pairing_links() {
         let pair = Pairing::parse("http://192.168.1.5:3211/controller#pair=123456").unwrap();

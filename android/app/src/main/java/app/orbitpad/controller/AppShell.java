@@ -5,6 +5,10 @@ import android.content.Intent;
 import android.graphics.Canvas;
 import android.graphics.Paint;
 import android.graphics.RectF;
+import android.os.Build;
+import android.os.Bundle;
+import android.graphics.Insets;
+import android.view.WindowInsets;
 import android.net.Uri;
 import android.view.Gravity;
 import android.view.View;
@@ -19,7 +23,11 @@ final class AppShell {
     private static final int BG=0xff141218, FG=0xffe6e0e9, MUTED=0xffcac4d0,
         SURFACE=0xff211f26, PRIMARY=0xffd0bcff;
     private final MainActivity app;
-    final FrameLayout view;
+    final GlassBackdrop view;
+    private GlassDock glassDock;
+    private ScrollView currentScroll;
+    private final int[] scrollPositions=new int[4];
+    private String draftAddress,draftCode;
     private final FrameLayout page;
     private LinearLayout content;
     private int selected;
@@ -29,43 +37,84 @@ final class AppShell {
     private EditText address, code;
     private LinearLayout connectionBody;
     private String stickyError;
+    private int safeLeft,safeTop,safeRight,safeBottom,keyboardBottom;
+    private boolean keyboardVisible,aboutExpanded;
+    private LinearLayout aboutBody;
+    private Button aboutToggle,qualityButton;
+    private TextView refractionHint;
+    private final String[] refractionLabels={"关闭","轻柔","标准","强烈"};
 
     AppShell(MainActivity app,int initial,String error) {
         this.app=app;selected=initial;stickyError=error;
-        view=new FrameLayout(app);view.setBackgroundColor(BG);
-        page=new FrameLayout(app);view.addView(page,new FrameLayout.LayoutParams(-1,-1));
+        view=new GlassBackdrop(app);page=view.page;
         view.setOnApplyWindowInsetsListener((v,i)->{
-            v.setPadding(i.getSystemWindowInsetLeft(),i.getSystemWindowInsetTop(),i.getSystemWindowInsetRight(),i.getSystemWindowInsetBottom());return i;
+            if(Build.VERSION.SDK_INT>=30){
+                Insets bars=i.getInsets(WindowInsets.Type.systemBars()|WindowInsets.Type.displayCutout());
+                safeLeft=bars.left;safeTop=bars.top;safeRight=bars.right;safeBottom=bars.bottom;
+                keyboardVisible=i.isVisible(WindowInsets.Type.ime());keyboardBottom=keyboardVisible?i.getInsets(WindowInsets.Type.ime()).bottom:0;
+            }else{
+                int bottom=i.getSystemWindowInsetBottom();keyboardVisible=bottom>app.dp(100);keyboardBottom=0;
+                safeLeft=i.getSystemWindowInsetLeft();safeTop=i.getSystemWindowInsetTop();safeRight=i.getSystemWindowInsetRight();
+                if(!keyboardVisible)safeBottom=bottom;
+            }
+            applyInsets();return i;
         });
-        show(initial);
+        if(Build.VERSION.SDK_INT<30){
+            final int[] windowSize={0,0};
+            view.addOnLayoutChangeListener((v,l,t,r,b,ol,ot,or,ob)->{
+                int width=r-l,height=b-t;
+                if(windowSize[0]!=width){windowSize[0]=width;windowSize[1]=height;}
+                windowSize[1]=Math.max(windowSize[1],height);
+                keyboardVisible=windowSize[1]-height>app.dp(100);applyInsets();
+            });
+        }
+        dock();show(initial);view.requestApplyInsets();
+    }
+    private void applyInsets(){
+        // The page fills the whole window; only controls avoid system gesture/cutout areas.
+        if(currentScroll!=null)currentScroll.setPadding(safeLeft,safeTop,safeRight,keyboardBottom);
+        if(content!=null)content.setPadding(app.dp(24),app.dp(28),app.dp(24),keyboardVisible?app.dp(24):glassDock.preferredHeight()+app.dp(52)+safeBottom);
+        if(glassDock!=null){
+            glassDock.setVisibility(keyboardVisible?View.GONE:View.VISIBLE);
+            FrameLayout.LayoutParams p=(FrameLayout.LayoutParams)glassDock.getLayoutParams();
+            int left=app.dp(20)+safeLeft,right=app.dp(20)+safeRight,bottom=app.dp(20)+safeBottom;
+            if(p.leftMargin!=left||p.rightMargin!=right||p.bottomMargin!=bottom){p.leftMargin=left;p.rightMargin=right;p.bottomMargin=bottom;glassDock.setLayoutParams(p);}
+        }
     }
     private void show(int index) {
-        selected=index;page.removeAllViews();connectionStatus=null;formMessage=null;connect=null;
-        ScrollView scroll=new ScrollView(app);scroll.setFillViewport(true);scroll.setClipToPadding(false);
+        boolean switching=selected!=index;
+        if(currentScroll!=null)scrollPositions[selected]=currentScroll.getScrollY();
+        if(address!=null){draftAddress=address.getText().toString();draftCode=code.getText().toString();}
+        address=null;code=null;
+        selected=index;page.removeAllViews();connectionStatus=null;formMessage=null;connect=null;aboutBody=null;aboutToggle=null;refractionHint=null;qualityButton=null;
+        ScrollView scroll=new ScrollView(app);currentScroll=scroll;scroll.setFillViewport(true);scroll.setClipToPadding(false);
+        scroll.setOnScrollChangeListener((v,x,y,oldX,oldY)->glassDock.onScroll(y-oldY,y));
         content=new LinearLayout(app);content.setOrientation(LinearLayout.VERTICAL);
-        content.setPadding(app.dp(24),app.dp(28),app.dp(24),app.dp(124));
+        content.setPadding(app.dp(24),app.dp(28),app.dp(24),glassDock.preferredHeight()+app.dp(52));
         scroll.addView(content,new ScrollView.LayoutParams(-1,-2));page.addView(scroll);
-        String[] titles={"你的手柄，你来定义。","连接你的电脑","主题","关于 Orbit Pad"};
+        String[] titles={"你的手柄，你来定义。","连接你的电脑","主题","设置"};
         add(app.text("ORBIT PAD",12,PRIMARY),0);add(app.text(titles[index],28,FG),12);
-        if(index==0)home();else if(index==1)connection();else if(index==3)about();
-        dock();update(app.snapshot);
+        if(index==0)home();else if(index==1)connection();else if(index==3)settingsPage();
+        glassDock.setSelectedIndex(index);applyInsets();update(app.snapshot);
+        if(switching)scroll.post(()->scroll.scrollTo(0,scrollPositions[index]));
+    }
+    void saveState(Bundle state){
+        state.putInt("shell_page",selected);state.putString("shell_mode",mode);state.putBoolean("shell_about_expanded",aboutExpanded);
+        if(currentScroll!=null)scrollPositions[selected]=currentScroll.getScrollY();
+        state.putIntArray("shell_scroll",scrollPositions);
+        state.putString("shell_address",address==null?draftAddress:address.getText().toString());
+        state.putString("shell_code",code==null?draftCode:code.getText().toString());
+    }
+    void restoreState(Bundle state){
+        aboutExpanded=state.getBoolean("shell_about_expanded",false);mode=state.getString("shell_mode","scan");draftAddress=state.getString("shell_address");draftCode=state.getString("shell_code");
+        int[] positions=state.getIntArray("shell_scroll");if(positions!=null&&positions.length==4)System.arraycopy(positions,0,scrollPositions,0,4);
+        int index=Math.max(0,Math.min(3,state.getInt("shell_page",0)));currentScroll=null;show(index);
+        currentScroll.post(()->currentScroll.scrollTo(0,scrollPositions[index]));
     }
     private void dock() {
-        if(view.getChildCount()>1)view.removeViewAt(1);
-        LinearLayout dock=new LinearLayout(app);dock.setGravity(Gravity.CENTER);
-        dock.setPadding(app.dp(6),app.dp(6),app.dp(6),app.dp(6));
-        dock.setBackground(app.rounded(0xff302d38,0xff494452,32));dock.setElevation(app.dp(12));
-        String[] labels={"主页","连接","主题","关于"};
-        for(int i=0;i<labels.length;i++){
-            final int index=i;LinearLayout tab=new LinearLayout(app);tab.setOrientation(LinearLayout.VERTICAL);tab.setGravity(Gravity.CENTER);
-            tab.setContentDescription("导航"+labels[i]);tab.setClickable(true);tab.setFocusable(true);
-            if(selected==i)tab.setBackground(app.rounded(0xff4f378b,0,26));
-            View icon=new DockIcon(app,i,selected==i?PRIMARY:MUTED);tab.addView(icon,new LinearLayout.LayoutParams(app.dp(23),app.dp(23)));
-            TextView name=app.text(labels[i],11,selected==i?PRIMARY:MUTED);name.setGravity(Gravity.CENTER);tab.addView(name);
-            tab.setOnClickListener(v->show(index));dock.addView(tab,new LinearLayout.LayoutParams(0,-1,1));
-        }
-        FrameLayout.LayoutParams p=new FrameLayout.LayoutParams(-1,app.dp(72),Gravity.BOTTOM|Gravity.CENTER_HORIZONTAL);
-        p.leftMargin=p.rightMargin=app.dp(20);p.bottomMargin=app.dp(20);view.addView(dock,p);
+        glassDock=new GlassDock(app,view,selected,index->{if(selected!=index)show(index);});
+        FrameLayout.LayoutParams p=new FrameLayout.LayoutParams(-1,glassDock.preferredHeight(),Gravity.BOTTOM|Gravity.CENTER_HORIZONTAL);
+        p.leftMargin=p.rightMargin=app.dp(20);p.bottomMargin=app.dp(20);view.setDock(glassDock);view.addView(glassDock,p);
     }
     private void add(View v,int top){app.add(content,v,top);}
     private LinearLayout card() {
@@ -145,8 +194,8 @@ final class AppShell {
         }else{
             app.add(connectionBody,app.text("手动输入配对信息",20,FG),0);
             app.add(connectionBody,app.text("电脑接收地址",12,PRIMARY),18);address=app.field("192.168.1.100:3210");address.setInputType(android.text.InputType.TYPE_CLASS_TEXT|android.text.InputType.TYPE_TEXT_VARIATION_URI);
-            address.setText(app.getPreferences(0).getString("receiver",""));app.add(connectionBody,address,8);
-            app.add(connectionBody,app.text("六位配对码",12,PRIMARY),18);code=app.field("000000");code.setInputType(android.text.InputType.TYPE_CLASS_NUMBER);code.setFilters(new android.text.InputFilter[]{new android.text.InputFilter.LengthFilter(6)});app.add(connectionBody,code,8);
+            address.setText(draftAddress==null?app.getPreferences(0).getString("receiver",""):draftAddress);app.add(connectionBody,address,8);
+            app.add(connectionBody,app.text("六位配对码",12,PRIMARY),18);code=app.field("000000");code.setInputType(android.text.InputType.TYPE_CLASS_NUMBER);code.setFilters(new android.text.InputFilter[]{new android.text.InputFilter.LengthFilter(6)});if(draftCode!=null)code.setText(draftCode);app.add(connectionBody,code,8);
             connect=app.button("连接并开始  →");connect.setOnClickListener(v->app.startConnection(address.getText().toString(),code.getText().toString().trim(),"manual"));app.add(connectionBody,connect,22);
         }
         formMessage=app.text(stickyError==null?"":stickyError,13,MUTED);app.add(connectionBody,formMessage,14);
@@ -154,25 +203,78 @@ final class AppShell {
         Button disconnect=secondary("断开当前连接");disconnect.setOnClickListener(v->{app.disconnectTransport();stickyError=null;show(1);});add(disconnect,10);
     }
     void error(String value){stickyError=value;if(formMessage!=null)formMessage.setText(value);else Toast.makeText(app,value,Toast.LENGTH_LONG).show();}
-    boolean back(){if(selected!=0){show(0);return true;}return false;}
+    boolean back(){
+        if(selected==3&&aboutExpanded){setAboutExpanded(false);return true;}
+        if(selected!=0){show(0);return true;}return false;
+    }
     void update(JSONObject snapshot) {
         if(connectionStatus!=null)connectionStatus.setText(snapshot.optBoolean("connected")?"● 已连接 · "+(snapshot.isNull("rtt")?"测量延迟中":snapshot.optLong("rtt")+" ms"):"○ "+snapshot.optString("message","等待连接"));
         if(connect!=null)connect.setEnabled(!app.isConnecting());
         if(formMessage!=null&&stickyError==null&&app.isConnecting())formMessage.setText(snapshot.optString("message"));
     }
-    private void about() {
-        add(app.text("手机，变身手柄。",16,MUTED),12);
-        LinearLayout info=card();
-        app.add(info,app.text("Orbit Pad",26,PRIMARY),0);
-        app.add(info,app.text("版本 "+app.snapshot.optString("version","0.5.0"),16,FG),8);
-        app.add(info,app.text("Android 原生界面 · Rust 控制核心",14,MUTED),12);
-        app.add(info,app.text("将手机变成 Windows 电脑的无线或有线手柄。支持模板布局与按键映射自定义。",14,MUTED),16);add(info,24);
-        LinearLayout details=card();
-        app.add(details,app.text("应用信息",18,FG),0);
-        app.add(details,app.text("连接方式\n二维码 / 局域网 / USB 直连 / 蓝牙 RFCOMM\n\n系统支持\nAndroid 8.0 及以上 · ARM64 / x86_64\n\n电脑输出\nWindows 键盘映射\n\n应用包名\napp.orbitpad.controller",14,MUTED),14);add(details,20);
-        Button project=secondary("项目主页 · OYLT / Orbit-Pad");project.setOnClickListener(v->app.startActivity(new Intent(Intent.ACTION_VIEW,Uri.parse("https://github.com/OYLT/Orbit-Pad"))));add(project,20);
-        LinearLayout license=card();app.add(license,app.text("组件与隐私",18,FG),0);
-        app.add(license,app.text("二维码识别：ZXing 3.5.3（Apache 2.0）。\n蓝牙连接：Android Bluetooth API。\n相机仅在扫码时打开，二维码在手机本地识别。",14,MUTED),12);add(license,20);
+    private void settingsPage(){
+        add(app.text("调整外观，让手柄更合你的习惯。",14,MUTED),10);
+        LinearLayout glass=card();app.add(glass,app.text("Liquid Glass",20,FG),0);
+        app.add(glass,app.text("Dock 玻璃效果",13,MUTED),12);
+        qualityButton=secondary(qualityLabel());qualityButton.setContentDescription("Dock 玻璃效果");
+        qualityButton.setOnClickListener(v->chooseGlassQuality());app.add(glass,qualityButton,8);
+        app.add(glass,app.text("折射强度",16,FG),20);
+        boolean stacked=app.getResources().getConfiguration().fontScale>1.3f||app.getResources().getConfiguration().screenWidthDp<360;
+        RadioGroup strength=new RadioGroup(app);strength.setOrientation(stacked?RadioGroup.VERTICAL:RadioGroup.HORIZONTAL);
+        strength.setContentDescription("Liquid Glass 折射强度");
+        int selectedLevel=GlassQualityPolicy.refractionLevel(app);
+        for(int level=0;level<4;level++){
+            RadioButton choice=new RadioButton(app);choice.setId(View.generateViewId());choice.setText(refractionLabels[level]);
+            choice.setTextSize(13);choice.setTextColor(FG);choice.setPadding(0,0,0,0);choice.setMinimumWidth(0);choice.setMinHeight(app.dp(48));
+            choice.setButtonTintList(android.content.res.ColorStateList.valueOf(PRIMARY));choice.setContentDescription("折射强度"+refractionLabels[level]);
+            choice.setTag(level);strength.addView(choice,new RadioGroup.LayoutParams(stacked?-1:0,-2,stacked?0:1));
+            if(level==selectedLevel)strength.check(choice.getId());
+        }
+        strength.setOnCheckedChangeListener((group,id)->{
+            View choice=group.findViewById(id);if(choice==null)return;
+            app.getPreferences(0).edit().putInt("glass_refraction",(Integer)choice.getTag()).apply();refreshGlass();
+        });app.add(glass,strength,8);
+        refractionHint=app.text("",12,MUTED);app.add(glass,refractionHint,10);add(glass,24);refreshGlass();
+        LinearLayout about=card();aboutToggle=secondary("关于 Orbit Pad");aboutToggle.setContentDescription("关于 Orbit Pad");
+        aboutToggle.setOnClickListener(v->setAboutExpanded(!aboutExpanded));app.add(about,aboutToggle,0);
+        aboutBody=new LinearLayout(app);aboutBody.setOrientation(LinearLayout.VERTICAL);
+        app.add(aboutBody,app.text("手机，变身手柄。",20,PRIMARY),18);
+        app.add(aboutBody,app.text("版本 "+app.snapshot.optString("version","0.5.0"),16,FG),10);
+        app.add(aboutBody,app.text("Android 原生界面 · Rust 控制核心",14,MUTED),10);
+        app.add(aboutBody,app.text("将手机变成 Windows 电脑的无线或有线手柄。支持模板布局与按键映射自定义。",14,MUTED),14);
+        app.add(aboutBody,app.text("应用信息",18,FG),24);
+        app.add(aboutBody,app.text("连接方式\n二维码 / 局域网 / USB 直连 / 蓝牙 RFCOMM\n\n系统支持\nAndroid 8.0 及以上 · ARM64 / x86_64\n\n电脑输出\nXbox 360 / XInput 原生手柄\n\n应用包名\napp.orbitpad.controller",14,MUTED),12);
+        Button project=secondary("项目主页 · OYLT / Orbit-Pad");project.setOnClickListener(v->app.startActivity(new Intent(Intent.ACTION_VIEW,Uri.parse("https://github.com/OYLT/Orbit-Pad"))));app.add(aboutBody,project,18);
+        app.add(aboutBody,app.text("组件与隐私",18,FG),24);
+        app.add(aboutBody,app.text("二维码识别：ZXing 3.5.3（Apache 2.0）。\n蓝牙连接：Android Bluetooth API。\n相机仅在扫码时打开，二维码在手机本地识别。",14,MUTED),12);
+        app.add(about,aboutBody,0);add(about,20);setAboutExpanded(aboutExpanded);
+    }
+    private String qualityLabel(){
+        String quality=app.getPreferences(0).getString("glass_quality","auto");
+        return "simple".equals(quality)?"简洁 · 降低渲染开销":"standard".equals(quality)?"柔和 · 模糊玻璃":"自动 · 随设备调整";
+    }
+    private void chooseGlassQuality(){
+        String[] values={"auto","standard","simple"};String choice=app.getPreferences(0).getString("glass_quality","auto");
+        int checked="simple".equals(choice)?2:"standard".equals(choice)?1:0;
+        new AlertDialog.Builder(app).setTitle("Dock 玻璃效果")
+            .setSingleChoiceItems(new String[]{"自动 · 随设备调整","柔和 · 模糊玻璃","简洁 · 降低渲染开销"},checked,(dialog,which)->{
+                app.getPreferences(0).edit().putString("glass_quality",values[which]).apply();refreshGlass();dialog.dismiss();
+            }).setNegativeButton("取消",null).show();
+    }
+    private void refreshGlass(){
+        view.invalidate();glassDock.invalidate();
+        if(qualityButton!=null)qualityButton.setText(qualityLabel());
+        if(refractionHint!=null){
+            int level=GlassQualityPolicy.refractionLevel(app);
+            String hint=level==0?"保留模糊与高光，关闭透镜折射。":"当前："+refractionLabels[level]+"。调整后立即生效，并自动保存。";
+            if(view.quality()!=GlassQualityPolicy.FULL&&level!=0)hint="强度已保存；自动模式且设备支持时启用折射，省电时暂停。";
+            refractionHint.setText(hint);
+        }
+    }
+    private void setAboutExpanded(boolean expanded){
+        aboutExpanded=expanded;if(aboutBody==null||aboutToggle==null)return;
+        aboutBody.setVisibility(expanded?View.VISIBLE:View.GONE);aboutToggle.setText("关于 Orbit Pad    "+(expanded?"⌃":"⌄"));
+        if(Build.VERSION.SDK_INT>=30)aboutToggle.setStateDescription(expanded?"已展开":"已收起");
     }
     private final class TemplatePreview extends View {
         final Paint p=new Paint(Paint.ANTI_ALIAS_FLAG);
@@ -190,15 +292,5 @@ final class AppShell {
         final Paint p=new Paint(Paint.ANTI_ALIAS_FLAG);
         QrMark(MainActivity app){super(app);setContentDescription("扫码连接图标");}
         @Override protected void onDraw(Canvas c){float u=getWidth()/21f;p.setColor(PRIMARY);for(int[] q:new int[][]{{1,1},{13,1},{1,13}}){p.setStyle(Paint.Style.STROKE);p.setStrokeWidth(u);c.drawRoundRect((q[0]+.5f)*u,(q[1]+.5f)*u,(q[0]+6.5f)*u,(q[1]+6.5f)*u,u,u,p);p.setStyle(Paint.Style.FILL);c.drawRect((q[0]+2)*u,(q[1]+2)*u,(q[0]+5)*u,(q[1]+5)*u,p);}for(int[] b:new int[][]{{13,13},{15,15},{18,13},{13,18},{18,18},{10,9},{9,12},{9,17}})c.drawRect(b[0]*u,b[1]*u,(b[0]+2)*u,(b[1]+2)*u,p);}
-    }
-    private static final class DockIcon extends View {
-        final int type,color;final Paint p=new Paint(Paint.ANTI_ALIAS_FLAG);
-        DockIcon(MainActivity app,int type,int color){super(app);this.type=type;this.color=color;}
-        @Override protected void onDraw(Canvas c){c.save();c.scale(getWidth()/24f,getHeight()/24f);p.setColor(color);p.setStyle(Paint.Style.STROKE);p.setStrokeWidth(1.8f);p.setStrokeCap(Paint.Cap.ROUND);
-            if(type==0){c.drawRoundRect(3,5,21,20,3,3,p);c.drawLine(7,10,11,10,p);c.drawLine(9,8,9,12,p);c.drawCircle(16,10,1,p);c.drawLine(7,16,17,16,p);}
-            else if(type==1){for(int[] q:new int[][]{{3,3},{15,3},{3,15}})c.drawRoundRect(q[0],q[1],q[0]+6,q[1]+6,1,1,p);c.drawLine(15,15,21,21,p);c.drawLine(21,15,15,21,p);}
-            else if(type==2){c.drawCircle(12,12,9,p);c.drawCircle(8,8,1,p);c.drawCircle(15,7,1,p);c.drawCircle(17,13,1,p);c.drawLine(9,17,13,17,p);}
-            else{c.drawCircle(12,12,9,p);c.drawPoint(12,7,p);c.drawLine(12,11,12,17,p);}c.restore();
-        }
     }
 }

@@ -1,4 +1,4 @@
-import { KEY_LABELS, DEFAULT_MAPPING, CONTROL_LABELS, PRESETS, validMapping, stateToKeys } from './controller-core.js';
+import { OUTPUT_LABELS, DEFAULT_MAPPING, CONTROL_LABELS, PRESETS, validMapping, stateToGamepad, describeReport } from './controller-core.js';
 
 const $ = selector => document.querySelector(selector);
 const $$ = selector => [...document.querySelectorAll(selector)];
@@ -7,8 +7,10 @@ const store = {
   set(key, value) { try { localStorage.setItem(`orbit.${key}`, JSON.stringify(value)); } catch { /* Private browsing may disable storage. */ } },
 };
 let mapping = store.get('mapping', DEFAULT_MAPPING);
-if (!validMapping(mapping)) mapping = { ...DEFAULT_MAPPING };
+const migratedMapping = !validMapping(mapping);
+if (migratedMapping) mapping = { ...DEFAULT_MAPPING };
 let preset = store.get('preset', 'general');
+if (migratedMapping) preset = 'general';
 if (![...Object.keys(PRESETS), 'custom'].includes(preset)) preset = 'general';
 let basePreset = store.get('basePreset', 'general');
 if (!PRESETS[basePreset]) basePreset = 'general';
@@ -35,6 +37,7 @@ let toastTimer;
 let remoteDisplay = false;
 const androidApp = /OrbitPadAndroid\//.test(navigator.userAgent);
 const buttonPointers = new Map();
+const triggerPointers = new Map();
 const stickPointers = new Map();
 const axes = [0, 0, 0, 0];
 const pressed = new Set();
@@ -54,7 +57,13 @@ async function api(path, data) {
 function send(value) { if (socket?.readyState === WebSocket.OPEN && authenticated) socket.send(JSON.stringify(value)); }
 function vibrate() { if (haptics && navigator.vibrate) navigator.vibrate(9); }
 function canSend() { return playing && authenticated && serverStatus?.ready && !serverStatus?.paused && !document.hidden; }
-function currentState() { return { buttons: [...pressed], axes: [...axes] }; }
+function currentState() {
+  const triggers = ['lt', 'rt'].map(control => {
+    const values = [...triggerPointers.values()].filter(t => t.control === control).map(t => t.value);
+    return values.length ? Math.max(...values) : Number(pressed.has(control));
+  });
+  return { buttons: [...pressed], axes: [...axes], triggers };
+}
 function sendState(force = false) {
   if (!canSend()) return;
   const time = performance.now();
@@ -63,13 +72,13 @@ function sendState(force = false) {
   send({ type: 'state', ...currentState() });
 }
 function setInputDisplay(state, currentMapping = mapping) {
-  const keys = stateToKeys(state, currentMapping, deadzone);
+  const keys = describeReport(stateToGamepad(state, currentMapping, deadzone));
   const root = $('#input-keys');
   root.replaceChildren();
-  if (!keys.size) {
+  if (!keys.length) {
     const span = document.createElement('span'); span.className = 'empty-input'; span.textContent = '等待操作'; root.append(span);
   } else {
-    for (const key of keys) { const kbd = document.createElement('kbd'); kbd.textContent = KEY_LABELS[key] || key; root.append(kbd); }
+    for (const key of keys) { const kbd = document.createElement('kbd'); kbd.textContent = key; root.append(kbd); }
   }
   $('#input-count').textContent = `${String(inputs).padStart(2, '0')} INPUTS`;
 }
@@ -88,7 +97,7 @@ function paintState(state = currentState()) {
   setInputDisplay(state);
 }
 function releaseAll() {
-  buttonPointers.clear(); stickPointers.clear(); pressed.clear(); axes.fill(0);
+  buttonPointers.clear(); triggerPointers.clear(); stickPointers.clear(); pressed.clear(); axes.fill(0);
   paintState(); send({ type: 'release' });
 }
 
@@ -100,15 +109,23 @@ for (const button of $$('[data-control]')) {
     event.preventDefault();
     button.setPointerCapture(event.pointerId);
     buttonPointers.set(event.pointerId, control);
+    if (control === 'lt' || control === 'rt') triggerPointers.set(event.pointerId, { control, startY: event.clientY, value: 1 });
     pressed.add(control); inputs++; vibrate(); paintState(); sendState(true);
   });
   function up(event) {
     if (!buttonPointers.has(event.pointerId)) return;
     buttonPointers.delete(event.pointerId);
+    triggerPointers.delete(event.pointerId);
     if (![...buttonPointers.values()].includes(control)) pressed.delete(control);
     paintState(); sendState(true);
   }
   button.addEventListener('pointerup', up);
+  button.addEventListener('pointermove', event => {
+    const trigger = triggerPointers.get(event.pointerId);
+    if (!trigger) return;
+    trigger.value = Math.max(0, Math.min(1, 1 - (event.clientY - trigger.startY) / button.getBoundingClientRect().height));
+    paintState(); sendState();
+  });
   button.addEventListener('pointercancel', up);
   button.addEventListener('lostpointercapture', up);
   // Keyboard activation is available for desktop preview and accessibility.
@@ -158,8 +175,8 @@ function saveMapping() {
   $('#profile-select').value = preset;
   $('#profile-select option[value="custom"]').hidden = preset !== 'custom';
   send({ type: 'mapping', mapping });
-  $('#controller .trigger[data-control="lt"] small').textContent = KEY_LABELS[mapping.lt].toUpperCase();
-  $('#controller .trigger[data-control="rt"] small').textContent = KEY_LABELS[mapping.rt].toUpperCase();
+  $('#controller .trigger[data-control="lt"] small').textContent = mapping.lt.toUpperCase();
+  $('#controller .trigger[data-control="rt"] small').textContent = mapping.rt.toUpperCase();
   paintState();
 }
 function renderMappings() {
@@ -168,7 +185,7 @@ function renderMappings() {
     const row = document.createElement('label'); row.className = 'mapping-row';
     const span = document.createElement('span'); span.textContent = label;
     const select = document.createElement('select'); select.setAttribute('aria-label', `${label} 映射`);
-    for (const [key, text] of Object.entries(KEY_LABELS)) { const option = new Option(text, key); select.add(option); }
+    for (const [key, text] of Object.entries(OUTPUT_LABELS)) { const option = new Option(text, key); select.add(option); }
     select.value = mapping[control];
     select.addEventListener('change', () => { releaseAll(); mapping[control] = select.value; preset = 'custom'; saveMapping(); });
     row.append(span, select); grid.append(row);
@@ -252,7 +269,7 @@ function updateSystemStatus(status) {
   const text = status.error ? '接收端异常' : !status.ready ? '接收端启动中' : status.paused ? '接收已暂停' : status.mode === 'preview' ? '预览模式' : '接收端已就绪';
   node.replaceChildren(); const dot = document.createElement('i'); node.append(dot, document.createTextNode(text));
   node.title = status.error || '';
-  $('#phone-status').textContent = status.paused ? '电脑已暂停接收输入' : !status.ready ? '等待接收端就绪' : status.error ? status.error : status.mode === 'preview' ? '已连接 · 预览模式，不发送键盘输入' : '已连接，准备就绪';
+  $('#phone-status').textContent = status.paused ? '电脑已暂停接收输入' : !status.ready ? '等待接收端就绪' : status.error ? status.error : status.mode === 'preview' ? '已连接 · 预览模式，不输出系统手柄输入' : '已连接，准备就绪';
   $('#play-button').disabled = !status.ready || status.paused;
   if (status.paused || !status.ready) releaseAll();
   updatePlayStatus();
@@ -349,7 +366,7 @@ async function updateHost() {
     if (remoteDisplay) {
       paintState({ buttons: info.buttons, axes: info.axes });
       const root = $('#input-keys'); root.replaceChildren();
-      if (info.keys.length) for (const key of info.keys) { const kbd = document.createElement('kbd'); kbd.textContent = KEY_LABELS[key] || key; root.append(kbd); }
+      if (info.inputs.length) for (const key of info.inputs) { const kbd = document.createElement('kbd'); kbd.textContent = key; root.append(kbd); }
       else { const span = document.createElement('span'); span.className = 'empty-input'; span.textContent = '等待手机操作'; root.append(span); }
     } else if (!pressed.size && !stickPointers.size) paintState();
     updatePlayStatus();

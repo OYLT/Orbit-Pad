@@ -1,16 +1,22 @@
+【原生手柄版 / XInput】
+本地版本输出 Xbox 360 原生虚拟手柄，已取代电脑键盘映射。
+首次使用：完整解压后运行“安装手柄驱动.cmd”，按向导安装 ViGEmBus，
+然后重新启动 OrbitPadReceiver.exe。已安装 ViGEmBus 的电脑可直接使用。
+LT / RT 按住默认全按，按住后向下滑动可调整力度。
+
 ORBIT PAD 0.5.0 — 手机手柄、模板自定义与多种连接方式
 
 【电脑端：Windows 10 / 11，64 位】
-1. 完整解压 OrbitPad-Receiver-Windows-x64-v0.5.0.zip。
+1. 完整解压 OrbitPad-Receiver-Windows-x64-v0.5.0-xinput.zip。
 2. 打开解压后的文件夹，双击 OrbitPadReceiver.exe。
 3. 窗口出现“接收端已就绪”后，记下电脑局域网地址和六位配对码。
 4. 保持接收端运行，把电脑前台切换到要操作的游戏。
 
 无需单独安装 Node.js。EXE 与 app、runtime 文件夹必须放在一起。
-依赖 Windows 自带的 .NET Framework 和 Windows PowerShell。
+依赖 Windows 自带的 .NET Framework 和 ViGEmBus 手柄驱动。
 如默认端口被占用，程序会在 3210–3230 范围内自动选择空闲端口。
 最小化进入系统托盘；关闭窗口会停止服务、断开手机并释放所有按键。
-“暂停输入”可临时停止键盘输出；“重置配对”会撤销所有手机的配对凭据。
+“暂停输入”可临时停止手柄输出；“重置配对”会撤销所有手机的配对凭据。
 
 【手机端：Android 8.0 或以上，ARM64 / x86_64】
 1. 将 OrbitPad-Android-v0.5.0.apk 传到自己的 Android 手机并安装。
@@ -46,10 +52,10 @@ APK 包含原生连接页、手柄和设置界面，由 Rust 核心直接与电�
 使用加密 RFCOMM，不需要 Wi-Fi 或蓝牙网络共享；电脑蓝牙适配器须支持经典蓝牙。
 只配对并不代表连接到手柄服务，电脑接收端仍须保持运行。
 
-【默认按键】
-左摇杆 WASD；右摇杆与方向键为方向键。
-A=空格，B=E，X=R，Y=F，LB=Q，RB=C，LT=Ctrl，RT=Shift。
-View=Tab，Menu=Esc。全屏右上角的设置按钮可修改按键映射和死区。
+【默认手柄控件】
+双摇杆输出独立模拟轴，方向键输出原生十字键。
+ABXY、LB/RB、LT/RT 均输出对应 Xbox 手柄控件。
+View=Back，Menu=Start。全屏右上角的设置按钮可修改按键映射和死区。
 设置页按系统返回键会关闭设置；在手柄页返回会询问是否断开。
 全部应用界面采用 Material Design 3 深色风格。
 
@@ -57,10 +63,10 @@ View=Tab，Menu=Esc。全屏右上角的设置按钮可修改按键映射和死�
 多网卡电脑请选择与手机同网段的 WLAN / Wi-Fi 地址。
 若系统询问网络权限，请根据自己的网络环境允许接收端在专用网络中通信。
 无法连接时检查防火墙、访客 Wi-Fi、AP 隔离和 VPN 路由。
-若游戏使用管理员权限，普通权限接收端的输入可能被 Windows 拦截。
+若系统提示驱动缺失，请完成 ViGEmBus 安装并重启接收端。
 
-当前输出是键盘映射，尚未加入 Xbox / XInput 虚拟手柄和模拟量输出。
-仅支持键盘操作且接受模拟键盘输入的游戏。尚未验证具体游戏兼容性。
+当前通过 ViGEmBus 输出 Xbox 360 / XInput 虚拟手柄和模拟量。
+游戏须支持手柄操作。尚未验证具体游戏兼容性。
 局域网方式使用未加密 HTTP / WebSocket，仅在可信局域网使用，不要转发到公网。
 
 APK 已由项目本地发布密钥签名；Windows EXE 未作商业代码签名。

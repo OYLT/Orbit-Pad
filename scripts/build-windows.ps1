@@ -1,6 +1,8 @@
-﻿$ErrorActionPreference = 'Stop'
+﻿param([switch]$PreviewSelfTest)
+$ErrorActionPreference = 'Stop'
 $orbitRoot = Split-Path -Parent $PSScriptRoot
 Set-Location -LiteralPath $orbitRoot
+& "$PSScriptRoot\setup-gamepad.ps1" -IncludeDriver
 python scripts/setup-direct-connections.py
 if ($LASTEXITCODE -ne 0) { throw 'USB component setup failed.' }
 $orbitOut = Join-Path $orbitRoot 'releases\OrbitPad-Receiver-Windows-x64'
@@ -46,17 +48,26 @@ foreach ($folder in @('server','native','public','node_modules')) {
 }
 Copy-Item -LiteralPath (Join-Path $orbitRoot 'package.json') -Destination (Join-Path $orbitOut 'app\package.json') -Force
 Copy-Item -LiteralPath (Join-Path $orbitRoot 'docs\README-START.txt') -Destination (Join-Path $orbitOut 'README-START.txt') -Force
+New-Item -ItemType Directory -Force -Path (Join-Path $orbitOut 'drivers') | Out-Null
+Copy-Item -LiteralPath (Join-Path $orbitRoot 'native\bin\ViGEmBus_1.22.0_x64_x86_arm64.exe') -Destination (Join-Path $orbitOut 'drivers') -Force
+Copy-Item -LiteralPath (Join-Path $orbitRoot '安装手柄驱动.cmd') -Destination $orbitOut -Force
+$orbitDuplicateDriver = Join-Path $orbitOut 'app\native\bin\ViGEmBus_1.22.0_x64_x86_arm64.exe'
+if (Test-Path -LiteralPath $orbitDuplicateDriver) { Remove-Item -LiteralPath $orbitDuplicateDriver }
+# Older build folders may still contain the retired keyboard bridge.
+$orbitOldKeyboard = Join-Path $orbitOut 'app\native\keyboard.ps1'
+if (Test-Path -LiteralPath $orbitOldKeyboard) { Remove-Item -LiteralPath $orbitOldKeyboard }
 @'
 <?xml version="1.0" encoding="utf-8"?><configuration><startup><supportedRuntime version="v4.0" sku=".NETFramework,Version=v4.7.2"/></startup><runtime><AppContextSwitchOverrides value="Switch.System.Windows.Forms.DoNotSupportDpiChanges=false"/></runtime></configuration>
 '@ | Set-Content -LiteralPath (Join-Path $orbitOut 'OrbitPadReceiver.exe.config') -Encoding UTF8
 
 $reportPath = Join-Path $orbitRoot 'releases\windows-self-test.json'
-$selfTest = Start-Process -FilePath $exePath -ArgumentList ('--self-test "' + $reportPath + '"') -WindowStyle Hidden -PassThru -Wait
+$orbitSelfTestMode = if ($PreviewSelfTest) { '--self-test-preview' } else { '--self-test' }
+$selfTest = Start-Process -FilePath $exePath -ArgumentList ($orbitSelfTestMode + ' "' + $reportPath + '"') -WindowStyle Hidden -PassThru -Wait
 if ($selfTest.ExitCode -ne 0) {
     if (Test-Path -LiteralPath $reportPath) { Get-Content -LiteralPath $reportPath }
     throw 'Packaged Windows receiver self-test failed.'
 }
 Get-Content -LiteralPath $reportPath
-$archive = Join-Path $orbitRoot 'releases\OrbitPad-Receiver-Windows-x64-v0.5.0.zip'
+$archive = Join-Path $orbitRoot 'releases\OrbitPad-Receiver-Windows-x64-v0.5.0-xinput.zip'
 Compress-Archive -LiteralPath $orbitOut -DestinationPath $archive -CompressionLevel Optimal -Force
 Write-Output "Windows receiver ready: $archive"

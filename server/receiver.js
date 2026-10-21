@@ -4,7 +4,7 @@ import { networkInterfaces, hostname } from 'node:os';
 import { randomBytes, randomInt, timingSafeEqual } from 'node:crypto';
 import { WebSocketServer, WebSocket } from 'ws';
 import QRCode from 'qrcode';
-import { DEFAULT_MAPPING, normalizeState, stateToKeys, validMapping } from '../public/controller-core.js';
+import { DEFAULT_MAPPING, normalizeState, stateToGamepad, validMapping, legacyMapping, emptyReport, describeReport } from '../public/controller-core.js';
 
 const STATIC = new Map([
   ['/', ['index.html', 'text/html; charset=utf-8']],
@@ -42,7 +42,7 @@ export function createReceiver({ input, port = 3210, host = '0.0.0.0', now = Dat
     device: active?.device || null,
   });
   const broadcast = () => { for (const ws of wss.clients) if (ws.authenticated) send(ws, { type: 'status', ...status() }); };
-  const release = ws => { if (active === ws) { ws.state = emptyState(); input.setKeys([]); } };
+  const release = ws => { if (active === ws) { ws.state = emptyState(); input.setReport(emptyReport()); } };
   const reply = (res, code, value, type = 'application/json; charset=utf-8') => {
     res.writeHead(code, { 'Content-Type': type, 'Cache-Control': 'no-store', 'X-Content-Type-Options': 'nosniff',
       'Referrer-Policy': 'no-referrer', 'X-Frame-Options': 'DENY',
@@ -74,7 +74,7 @@ export function createReceiver({ input, port = 3210, host = '0.0.0.0', now = Dat
         if (!local(req)) return reply(res, 403, { error: '请在电脑上打开 localhost 管理接收端' });
         if (req.method === 'GET' && url.pathname === '/api/host') {
           const urls = addresses.map(ip => `http://${ip}:${listeningPort}`);
-          return reply(res, 200, { ...status(), pairCode, urls, keys: [...input.keys],
+          return reply(res, 200, { ...status(), pairCode, urls, report: input.report, inputs: describeReport(input.report), keys: [],
             buttons: active?.state?.buttons || [], axes: active?.state?.axes || [0, 0, 0, 0] });
         }
         if (req.method === 'GET' && url.pathname === '/api/host/qr') {
@@ -170,9 +170,9 @@ export function createReceiver({ input, port = 3210, host = '0.0.0.0', now = Dat
         if (data.type === 'ping') { send(ws, { type: 'pong', sent: data.sent }); return; }
         if (data.type === 'release') { release(ws); return; }
         if (data.type === 'mapping') {
-          if (!validMapping(data.mapping)) throw new Error('无效映射');
+          if (!validMapping(data.mapping) && !legacyMapping(data.mapping)) throw new Error('无效映射');
           release(ws);
-          ws.mapping = { ...data.mapping };
+          ws.mapping = { ...(validMapping(data.mapping) ? data.mapping : DEFAULT_MAPPING) };
           return;
         }
         if (data.type === 'deadzone') {
@@ -185,7 +185,7 @@ export function createReceiver({ input, port = 3210, host = '0.0.0.0', now = Dat
           const state = normalizeState(data);
           if (active === ws && !paused && input.ready) {
             ws.state = state;
-            input.setKeys(stateToKeys(state, ws.mapping, ws.deadzone));
+            input.setReport(stateToGamepad(state, ws.mapping, ws.deadzone));
           }
           return;
         }

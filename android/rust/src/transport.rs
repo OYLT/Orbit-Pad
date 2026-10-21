@@ -167,7 +167,7 @@ fn connected(core: &Arc<Mutex<Core>>, mut ws: WebSocket<TcpStream>, epoch: u64) 
             for state in pending {
                 if send(
                     &mut ws,
-                    json!({"type":"state","buttons":state.buttons,"axes":state.axes}),
+                    json!({"type":"state","buttons":state.buttons,"axes":state.axes,"triggers":state.triggers}),
                 )
                 .is_err()
                 {
