@@ -1,12 +1,12 @@
 # Windows 原生手柄输出
 
-当前本地源码将电脑键盘映射替换为 ViGEmBus Xbox 360 虚拟设备。游戏通过标准 XInput 获取状态。Wi-Fi、USB、蓝牙继续使用现有配对与 WebSocket 通道。
+当前版本将电脑键盘映射替换为 ViGEmBus Xbox 360 虚拟设备。游戏通过标准 XInput 获取状态。Wi-Fi、USB、蓝牙继续使用现有配对与 WebSocket 通道。
 
 ## 使用
 
 源码环境运行 `npm install`、`npm run setup:gamepad`，然后运行根目录的 `安装手柄驱动.cmd`。安装完成后运行 `npm start`。已有 ViGEmBus 驱动的电脑无需重复安装。
 
-便携包为 `releases/OrbitPad-Receiver-Windows-x64-v0.5.0-xinput.zip`。完整解压，首次运行包内的 `安装手柄驱动.cmd`，然后启动 `OrbitPadReceiver.exe`。新版 Android 安装包为 `releases/OrbitPad-Android-v0.5.0.apk`。本次仅本地构建，没有更新 GitHub 发布文件。
+便携包为 `releases/OrbitPad-Receiver-Windows-x64-v0.5.0-xinput.zip`。完整解压，首次运行包内的 `安装手柄驱动.cmd`，然后启动 `OrbitPadReceiver.exe`。新版 Android 安装包为 `releases/OrbitPad-Android-v0.5.0.apk`。下载见 [v0.5.0-xinput 发布](https://github.com/OYLT/Orbit-Pad/releases/tag/v0.5.0-xinput)。
 
 接收端退出时移除虚拟设备。可运行 Windows 的 `joy.cpl` 查看手柄；游戏中选择 Xbox 手柄操作。具体游戏兼容性尚未逐一验证。
 

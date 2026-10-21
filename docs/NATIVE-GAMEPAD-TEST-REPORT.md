@@ -27,7 +27,7 @@ Rust 格式和 Clippy 检查通过。APK / ZIP 内容校验、最终 APK 签名�
 
 ## 证据
 
-原始结果：[汇总](../artifacts/native-gamepad/summary.json)、[45 项基础触控](../artifacts/native-gamepad/baseline/report.json)、[17 项原生设置](../artifacts/native-gamepad/settings-xinput/report.json)、[14 项完整链路](../artifacts/native-gamepad/native-xinput/report.json)。同目录保留 instrumentation 日志。设置界面截图位于 `artifacts/native-gamepad/baseline/material-settings-mapping.png`，已检查手柄映射标签和说明。
+原始结果：[汇总](https://github.com/OYLT/Orbit-Pad/releases/download/v0.5.0-xinput/native-gamepad-summary.json)、[45 项基础触控](https://github.com/OYLT/Orbit-Pad/releases/download/v0.5.0-xinput/native-gamepad-baseline.json)、[17 项原生设置](https://github.com/OYLT/Orbit-Pad/releases/download/v0.5.0-xinput/native-gamepad-settings-xinput.json)、[14 项完整链路](https://github.com/OYLT/Orbit-Pad/releases/download/v0.5.0-xinput/native-gamepad-native-xinput.json)。instrumentation 日志保留在本地 artifacts/native-gamepad 各套件目录。设置界面截图位于 `artifacts/native-gamepad/baseline/material-settings-mapping.png`，已检查手柄映射标签和说明。
 
 最终 APK SHA-256：`ce2e6f592794f9d3e8e46e0984c4461ad497b6ab98a7e4b2c2ab11e4af66cca7`。三个真机套件均记录这一相同哈希。Windows 包校验见 `releases/SHA256SUMS.txt` 与 `releases/windows-extracted-self-test.json`。
 

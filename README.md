@@ -2,11 +2,16 @@
 
 把手机变成 Windows 手柄，支持扫码、USB 数据线、蓝牙直连与局域网手动配对。
 
-## 本地原生手柄版（XInput）
+## 最新版本：0.5.0 XInput
 
-当前源码与本地构建已改用 ViGEmBus 创建 Xbox 360 虚拟手柄，双摇杆和 LT / RT 连续输出模拟量。自定义映射目标为手柄按键和摇杆轴，旧键盘配置升级时恢复原生对应关系并保留布局与手感设置。LT / RT 默认按住为全按，按住后向下滑动可减小力度。
+- [Android APK](https://github.com/OYLT/Orbit-Pad/releases/download/v0.5.0-xinput/OrbitPad-Android-v0.5.0.apk)
+- [Windows x64 接收端](https://github.com/OYLT/Orbit-Pad/releases/download/v0.5.0-xinput/OrbitPad-Receiver-Windows-x64-v0.5.0-xinput.zip)
+- [版本说明、测试报告与 SHA-256 校验](https://github.com/OYLT/Orbit-Pad/releases/tag/v0.5.0-xinput)
 
-本地 Windows 包：`releases/OrbitPad-Receiver-Windows-x64-v0.5.0-xinput.zip`。首次完整解压后运行包内 `安装手柄驱动.cmd`，完成 ViGEmBus 安装后启动接收端；已安装驱动可直接启动。Android 本地构建为 `releases/OrbitPad-Android-v0.5.0.apk`。GitHub 上的历史 0.5.0 下载仍是键盘版，本次没有发布到 GitHub。
+
+当前版本已改用 ViGEmBus 创建 Xbox 360 虚拟手柄，双摇杆和 LT / RT 连续输出模拟量。自定义映射目标为手柄按键和摇杆轴，旧键盘配置升级时恢复原生对应关系并保留布局与手感设置。LT / RT 默认按住为全按，按住后向下滑动可减小力度。
+
+本地 Windows 包：`releases/OrbitPad-Receiver-Windows-x64-v0.5.0-xinput.zip`。首次完整解压后运行包内 `安装手柄驱动.cmd`，完成 ViGEmBus 安装后启动接收端；已安装驱动可直接启动。Android 本地构建为 `releases/OrbitPad-Android-v0.5.0.apk`。本次增强版以 v0.5.0-xinput 发布，应用内版本保持 0.5.0，沿用原发布签名。历史 v0.5.0 下载保留为键盘版。
 
 详细依赖、测试与安装说明见 [原生手柄说明](docs/NATIVE-GAMEPAD.md)。
 
