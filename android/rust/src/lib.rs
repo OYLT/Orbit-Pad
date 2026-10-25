@@ -185,7 +185,45 @@ impl Engine {
                 {
                     c.revision += 1;
                 }
+                c.input.linear_triggers = settings.linear_triggers;
+                let controls = model::layout(&settings);
+                for (i, id) in ["lt", "rt"].iter().enumerate() {
+                    let p = controls
+                        .as_array()
+                        .unwrap()
+                        .iter()
+                        .find(|p| p["id"] == *id)
+                        .unwrap();
+                    c.input.trigger_horizontal[i] = p["width"].as_f64() >= p["height"].as_f64();
+                }
                 c.settings = settings;
+            }
+            "gyro" => {
+                if c.enabled() && c.settings.gyro_enabled {
+                    let angle = command["angle"].as_f64().ok_or("陀螺仪角度无效")? as f32;
+                    if !angle.is_finite() || angle.abs() > 360.0 {
+                        return Err("陀螺仪角度无效".into());
+                    }
+                    let s = &c.settings;
+                    let value = ((angle.abs() - s.gyro_deadzone)
+                        / (s.gyro_range - s.gyro_deadzone))
+                        .clamp(0.0, 1.0)
+                        * angle.signum()
+                        * if s.gyro_invert { -1.0 } else { 1.0 };
+                    // Precompensate the receiver's stick deadzone for linear steering.
+                    c.input.gyro_x = if value == 0.0 {
+                        0.0
+                    } else {
+                        value.signum() * (s.deadzone + value.abs() * (1.0 - s.deadzone))
+                    };
+                    let state = c.input.state();
+                    if c.pending.back().is_some_and(|p| !p.edge) {
+                        c.pending.pop_back();
+                    }
+                    if c.pending.len() < 128 {
+                        c.pending.push_back(Pending { state, edge: false });
+                    }
+                }
             }
             "touch" => {
                 if c.enabled() {
@@ -262,6 +300,44 @@ pub extern "system" fn Java_app_orbitpad_controller_NativeBridge_call(
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn racing_gyro_manual_override_and_lifecycle() {
+        let e = Engine::new();
+        {
+            let mut c = e.core.lock().unwrap();
+            c.connected = true;
+            c.ready = true;
+        }
+        let settings = Settings {
+            gyro_enabled: true,
+            linear_triggers: true,
+            ..Settings::default()
+        };
+        e.call(json!({"op":"configure","settings":settings}))
+            .unwrap();
+        let value = e.call(json!({"op":"gyro","angle":23.5})).unwrap();
+        assert!((value["state"]["axes"][0].as_f64().unwrap() - 0.62).abs() < 0.001);
+        let state = e
+            .call(json!({"op":"touch","id":0,"phase":"down","control":"rt","x":0.5,"y":0}))
+            .unwrap();
+        assert_eq!(state["state"]["triggers"][1], 0.75);
+        let state = e
+            .call(json!({"op":"touch","id":1,"phase":"down","control":"move","x":-0.8,"y":0}))
+            .unwrap();
+        assert!(state["state"]["axes"][0].as_f64().unwrap() < -0.79);
+        let state = e.call(json!({"op":"gyro","angle":-45})).unwrap();
+        assert!(state["state"]["axes"][0].as_f64().unwrap() > -0.81);
+        e.call(json!({"op":"pause"})).unwrap();
+        assert_eq!(
+            e.call(json!({"op":"gyro","angle":45})).unwrap()["state"],
+            json!(InputState::default())
+        );
+        assert!(e
+            .call(
+                json!({"op":"configure","settings":Settings {gyro_range:0.0,..Settings::default()}})
+            )
+            .is_err());
+    }
     #[test]
     fn lifecycle_clears_held_input_and_ignores_background_touches() {
         let e = Engine::new();

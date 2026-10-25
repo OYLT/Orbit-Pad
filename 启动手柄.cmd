@@ -15,5 +15,5 @@ if not exist node_modules\ws (
     exit /b 1
   )
 )
-node server\index.js --open
+node server\index.js
 pause

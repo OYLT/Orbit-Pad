@@ -1,0 +1,10 @@
+AndroidLiquidGlass / Backdrop
+Copyright 2025 Kyant
+https://github.com/Kyant0/AndroidLiquidGlass
+Apache License 2.0
+
+Orbit Pad adapts Shaders.kt, Lens.kt, ColorFilter.kt, and the LiquidBottomTabs
+layering and interaction design to Java View / RenderNode.
+Vendored upstream commit: 65ab177e90e5c1d8c62e70cf7755841982da65f6
+Modified shader files add shear coordinates and numerical guards.
+The Compose framework and catalog application are not included.

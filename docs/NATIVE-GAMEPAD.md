@@ -1,5 +1,7 @@
 # Windows 原生手柄输出
 
+当前工作区已移除网页端。最新本地包为 `releases/OrbitPad-Receiver-Windows-x64-v0.5.0-native.zip`。新增 Xbox 键、可视化宽高、可选线性扳机和陀螺仪转向，见 [当前说明](../README.md)。下文的 GitHub 链接记录此前 XInput 发布。
+
 当前版本将电脑键盘映射替换为 ViGEmBus Xbox 360 虚拟设备。游戏通过标准 XInput 获取状态。Wi-Fi、USB、蓝牙继续使用现有配对与 WebSocket 通道。
 
 ## 使用

@@ -10,7 +10,7 @@ import android.graphics.Paint;
 import android.graphics.Path;
 import android.graphics.RectF;
 import android.graphics.Shader;
-import android.graphics.SweepGradient;
+import android.graphics.RadialGradient;
 import android.os.Build;
 import android.os.SystemClock;
 import android.view.Gravity;
@@ -24,10 +24,10 @@ import android.view.accessibility.AccessibilityNodeInfo;
 import android.widget.LinearLayout;
 import android.widget.TextView;
 
-/** Frosted capsule + clear liquid lens. Gesture coordinates stay in screen space. */
+/** Native adaptation of Kyant LiquidBottomTabs: frosted panel + combined-layer lens. */
 final class GlassDock extends LinearLayout {
     interface Navigation {void select(int index);}
-    private static final int ACTIVE=0xffa5f0cf,INACTIVE=0xffeeedf2;
+    private static final int ACTIVE=0xff65b5ff,INACTIVE=0xffeeedf2;
     private final MainActivity app;
     private final GlassBackdrop backdrop;
     private final Navigation navigation;
@@ -36,22 +36,26 @@ final class GlassDock extends LinearLayout {
     private final RectF surface=new RectF(),slider=new RectF();
     private final Path clip=new Path(),lensPath=new Path();
     private final Matrix lensMatrix=new Matrix();
-    private Shader tint,rim,lensTint,lensRim;
+    private Shader tint,rim,spot;
+    private final Matrix spotMatrix=new Matrix();
+    private KyantGlass.Highlight panelHighlight,lensHighlight;
+    private ContentLens contentLens;
+    private boolean contentFailed;
     private int selected,scrollDistance,pointerId=-1,pressedIndex;
     private final int touchSlop;
     private boolean ticking,compact,touchActive,dragging,held,verticalCancelled,positionReady;
     private long previousFrame,lastMoveTime;
     private float downRawX,downRawY,originX,grabOffset,lastRawX,fingerVelocity;
     private VelocityTracker tracker;
-    private final Spring position=new Spring(400,29),activation=new Spring(210,18),
-        deformation=new Spring(160,16),dockShift=new Spring(160,18),jelly=new Spring(140,10);
+    private final Spring position=new Spring(400,34),activation=new Spring(210,26),
+        deformation=new Spring(160,23),dockShift=new Spring(160,18),jelly=new Spring(140,20);
     private final int[] screenLocation=new int[2];
     private final Runnable longPress=()->{
         if(!touchActive||dragging||verticalCancelled)return;
-        held=true;activation.target=1;jelly.velocity=5.5f;
+        held=true;activation.target=1;jelly.velocity=2.2f;
         longPressFeedback();animateMaterial();
     };
-    private final Runnable previewRelease=()->{position.target=tabs[selected].getLeft();activation.target=0;held=false;jelly.velocity=-3.5f;animateMaterial();};
+    private final Runnable previewRelease=()->{position.target=tabs[selected].getLeft();activation.target=0;held=false;jelly.velocity=-1.25f;animateMaterial();};
     private final Runnable frame=new Runnable(){public void run(){
         long now=SystemClock.uptimeMillis();float dt=Math.min(.048f,Math.max(.001f,(now-previousFrame)/1000f));previousFrame=now;
         int steps=Math.max(1,(int)Math.ceil(dt/.008));float h=dt/steps;
@@ -67,14 +71,14 @@ final class GlassDock extends LinearLayout {
     GlassDock(MainActivity app,GlassBackdrop backdrop,int selected,Navigation navigation){
         super(app);this.app=app;this.backdrop=backdrop;this.navigation=navigation;this.selected=selected;
         touchSlop=ViewConfiguration.get(app).getScaledTouchSlop();
-        setGravity(Gravity.CENTER);setPadding(app.dp(6),app.dp(6),app.dp(6),app.dp(6));
+        setGravity(Gravity.CENTER);setPadding(app.dp(4),app.dp(4),app.dp(4),app.dp(4));
         setWillNotDraw(false);setClickable(true);setClipChildren(false);setClipToPadding(false);setElevation(app.dp(10));
         setOutlineProvider(new ViewOutlineProvider(){@Override public void getOutline(View v,Outline outline){outline.setRoundRect(0,0,v.getWidth(),v.getHeight(),v.getHeight()/2f);}});
         String[] labels={"主页","连接","主题","设置"};
         for(int i=0;i<4;i++){
             final int index=i;Tab tab=new Tab(labels[i],i);tabs[i]=tab;
             tab.setOnClickListener(v->commitSelection(index));
-            tab.setOnLongClickListener(v->{position.target=tabs[index].getLeft();activation.target=1;jelly.velocity=5.5f;held=true;animateMaterial();removeCallbacks(previewRelease);postDelayed(previewRelease,450);return true;});
+            tab.setOnLongClickListener(v->{position.target=tabs[index].getLeft();activation.target=1;jelly.velocity=2.2f;held=true;animateMaterial();removeCallbacks(previewRelease);postDelayed(previewRelease,450);return true;});
             addView(tab,new LinearLayout.LayoutParams(0,-1,1));
         }
         setSelectedIndex(selected);
@@ -131,7 +135,7 @@ final class GlassDock extends LinearLayout {
             if(!dragging&&Math.abs(dy)>touchSlop*1.5f&&Math.abs(dy)>Math.abs(dx)*1.2f){verticalCancelled=true;removeCallbacks(longPress);activation.target=0;position.target=tabs[selected].getLeft();animateMaterial();return true;}
             if(verticalCancelled)return true;
             if(!dragging&&Math.abs(dx)>touchSlop&&Math.abs(dx)>Math.abs(dy)){
-                dragging=true;held=true;removeCallbacks(longPress);activation.target=1;activation.velocity=Math.max(activation.velocity,3.5f);jelly.velocity=2.5f;
+                dragging=true;held=true;removeCallbacks(longPress);activation.target=1;activation.velocity=Math.max(activation.velocity,1.5f);jelly.velocity=1.1f;
             }
             long now=event.getEventTime();float seconds=Math.max(.008f,(now-lastMoveTime)/1000f);
             fingerVelocity=fingerVelocity*.65f+(rawX-lastRawX)/seconds*.35f;lastRawX=rawX;lastMoveTime=now;
@@ -165,7 +169,7 @@ final class GlassDock extends LinearLayout {
         boolean hadGesture=touchActive;touchActive=dragging=held=verticalCancelled=false;pointerId=-1;
         removeCallbacks(longPress);removeCallbacks(previewRelease);recycleTracker();
         activation.target=0;dockShift.target=0;position.target=tabs[selected].getLeft();
-        if(hadGesture)jelly.velocity=committed?-3.5f:0;
+        if(hadGesture)jelly.velocity=committed?-1.25f:0;
         if(getParent()!=null)getParent().requestDisallowInterceptTouchEvent(false);animateMaterial();
     }
     private void recycleTracker(){if(tracker!=null){tracker.recycle();tracker=null;}}
@@ -194,54 +198,106 @@ final class GlassDock extends LinearLayout {
     }
     @Override protected void onSizeChanged(int w,int h,int oldw,int oldh){
         super.onSizeChanged(w,h,oldw,oldh);surface.set(.75f,.75f,w-.75f,h-.75f);clip.reset();clip.addRoundRect(surface,h/2f,h/2f,Path.Direction.CW);
-        tint=new LinearGradient(0,0,w,h,new int[]{0x55ffffff,0x20313b48,0x42e7f0ef},new float[]{0,.52f,1},Shader.TileMode.CLAMP);
-        rim=new LinearGradient(0,0,w,h,new int[]{0xcaffffff,0x32edf7ff,0x9affffff},new float[]{0,.5f,1},Shader.TileMode.CLAMP);
-        lensTint=new LinearGradient(0,0,0,h,new int[]{0x38ffffff,0x10d9e8ee,0x36ffffff},new float[]{0,.55f,1},Shader.TileMode.CLAMP);
-        lensRim=new SweepGradient(0,0,new int[]{0xffffffff,0xffb0ddff,0xffffdebd,0xffffffff,0xffb0f8e5,0xffd9c3ff,0xffffffff},null);
+        tint=new LinearGradient(0,0,0,h,new int[]{0x24ffffff,0x09ffffff,0x18ffffff},new float[]{0,.56f,1},Shader.TileMode.CLAMP);
+        rim=new LinearGradient(0,0,w,h,new int[]{0x80ffffff,0x10ffffff,0x65ffffff},new float[]{0,.5f,1},Shader.TileMode.CLAMP);
+        spot=new RadialGradient(0,0,h*1.5f,new int[]{0x38ffffff,0x00ffffff},null,Shader.TileMode.CLAMP);
     }
     private void measureLens(){
-        float a=clamp(activation.value,0,1.18f),speed=Math.abs(deformation.value),g=clamp(jelly.value,-.3f,.3f);
+        float a=clamp(activation.value,0,1.18f),speed=Math.abs(deformation.value),g=clamp(jelly.value,-.18f,.18f);
         float baseWidth=tabs[selected].getWidth()-app.dp(4),baseHeight=getHeight()-getPaddingTop()-getPaddingBottom();
-        float width=baseWidth*(1+a*.50f+speed*.38f+g*.11f),height=baseHeight*(1+a*.36f-speed*.10f-g*.12f);
-        float centerX=position.value+tabs[selected].getWidth()/2f+deformation.value*app.dp(2),centerY=getHeight()/2f;
+        float width=baseWidth*(1+a*.20f+speed*.18f+g*.055f),height=baseHeight*(1+a*.18f-speed*.05f-g*.06f);
+        float centerX=position.value+tabs[selected].getWidth()/2f+deformation.value*app.dp(1),centerY=getHeight()/2f;
         centerX=clamp(centerX,width/2-app.dp(8),getWidth()-width/2+app.dp(8));
         slider.set(centerX-width/2,centerY-height/2,centerX+width/2,centerY+height/2);
         lensPath.reset();lensPath.addRoundRect(slider,Math.min(width,height)/2,Math.min(width,height)/2,Path.Direction.CW);
-        lensMatrix.setSkew(deformation.value*-.10f,0,centerX,centerY);lensPath.transform(lensMatrix);
+        lensMatrix.setSkew(deformation.value*-.045f,0,centerX,centerY);lensPath.transform(lensMatrix);
+    }
+    private void drawPanel(Canvas canvas){
+        float a=clamp(activation.value,0,1);int save=canvas.save();canvas.clipPath(clip);
+        boolean sampled=backdrop.drawGlass(canvas,this,a);
+        paint.setShader(null);paint.setStyle(Paint.Style.FILL);paint.setColor(sampled?0x66121212:0xf02b2b32);canvas.drawPath(clip,paint);
+        paint.setShader(tint);paint.setAlpha(255);canvas.drawPath(clip,paint);
+        if(a>0){
+            spotMatrix.setTranslate(slider.centerX(),getHeight()/2f);spot.setLocalMatrix(spotMatrix);
+            paint.setShader(spot);paint.setAlpha((int)(255*a));canvas.drawPath(clip,paint);
+        }
+        canvas.restoreToCount(save);paint.setShader(rim);paint.setAlpha(140);paint.setStyle(Paint.Style.STROKE);paint.setStrokeWidth(app.dp(.65f));
+        if(Build.VERSION.SDK_INT>=33&&backdrop.quality()!=GlassQualityPolicy.SIMPLE){
+            if(panelHighlight==null)panelHighlight=new KyantGlass.Highlight(app);
+            paint.setShader(panelHighlight.shader(surface,0));paint.setAlpha(115);
+        }
+        canvas.drawPath(clip,paint);paint.setShader(null);paint.setStyle(Paint.Style.FILL);
+    }
+    private void drawLensFinish(Canvas canvas){
+        float a=clamp(activation.value,0,1);
+        paint.setShader(null);paint.setStyle(Paint.Style.FILL);paint.setColor(Color.argb((int)(26*(1-a)),255,255,255));canvas.drawPath(lensPath,paint);
+        if(a>0){paint.setColor(Color.argb((int)(8*a),0,0,0));canvas.drawPath(lensPath,paint);}
+        paint.setShader(rim);paint.setAlpha((int)(45+180*a));paint.setStyle(Paint.Style.STROKE);paint.setStrokeWidth(app.dp(.65f+a*.2f));
+        if(Build.VERSION.SDK_INT>=33&&backdrop.quality()!=GlassQualityPolicy.SIMPLE){
+            if(lensHighlight==null)lensHighlight=new KyantGlass.Highlight(app);
+            paint.setShader(lensHighlight.shader(slider,deformation.value*-.045f));paint.setAlpha((int)(55+195*a));
+        }
+        canvas.drawPath(lensPath,paint);paint.setShader(null);paint.setStyle(Paint.Style.FILL);
     }
     @Override protected void onDraw(Canvas canvas){
-        super.onDraw(canvas);if(getWidth()==0||!positionReady)return;
+        super.onDraw(canvas);if(getWidth()==0||!positionReady)return;measureLens();drawPanel(canvas);
         float a=clamp(activation.value,0,1);
-        int save=canvas.save();canvas.clipPath(clip);
-        boolean sampled=backdrop.drawGlass(canvas,this,a);
-        paint.setStyle(Paint.Style.FILL);paint.setShader(null);paint.setColor(sampled?0:0xee353b42);if(!sampled)canvas.drawPath(clip,paint);
-        paint.setShader(tint);paint.setAlpha(255);canvas.drawPath(clip,paint);canvas.restoreToCount(save);
-        paint.setShader(rim);paint.setAlpha(255);paint.setStyle(Paint.Style.STROKE);paint.setStrokeWidth(app.dp(.8f));canvas.drawPath(clip,paint);
-        measureLens();
-        // The raised lens is allowed outside the capsule, but remains above the system handle.
-        paint.setShader(null);paint.setStyle(Paint.Style.STROKE);paint.setColor(Color.argb((int)(20+a*18),0,0,0));paint.setStrokeWidth(app.dp(3));canvas.drawPath(lensPath,paint);
-        save=canvas.save();canvas.clipPath(lensPath);
-        boolean lensSampled=backdrop.drawLens(canvas,this,slider,a);
-        paint.setStyle(Paint.Style.FILL);paint.setShader(null);paint.setColor(lensSampled?0x10ffffff:0x40535d65);canvas.drawPath(lensPath,paint);
-        paint.setShader(lensTint);paint.setAlpha(255);canvas.drawPath(lensPath,paint);canvas.restoreToCount(save);
-        paint.setShader(rim);paint.setAlpha((int)(145+a*90));paint.setStyle(Paint.Style.STROKE);paint.setStrokeWidth(app.dp(1.15f));canvas.drawPath(lensPath,paint);
-        if(backdrop.quality()==GlassQualityPolicy.FULL&&GlassQualityPolicy.refractionLevel(app)>0){
-            lensMatrix.setScale(slider.width()/2,slider.height()/2);lensMatrix.postTranslate(slider.centerX(),slider.centerY());lensRim.setLocalMatrix(lensMatrix);
-            paint.setShader(lensRim);paint.setAlpha((int)(18+a*88+Math.abs(deformation.value)*22));paint.setStrokeWidth(app.dp(1.6f));canvas.drawPath(lensPath,paint);
+        paint.setShader(null);paint.setStyle(Paint.Style.STROKE);paint.setColor(Color.argb((int)(12+a*22),0,0,0));paint.setStrokeWidth(app.dp(2+a*2));canvas.drawPath(lensPath,paint);
+        paint.setStyle(Paint.Style.FILL);
+    }
+    @Override protected void dispatchDraw(Canvas canvas){
+        if(!positionReady){super.dispatchDraw(canvas);return;}
+        if(Build.VERSION.SDK_INT<33||!canvas.isHardwareAccelerated()||backdrop.quality()!=GlassQualityPolicy.FULL||GlassQualityPolicy.refractionLevel(app)==0||contentFailed){
+            drawLensFinish(canvas);super.dispatchDraw(canvas);return;
         }
-        paint.setShader(null);paint.setStyle(Paint.Style.FILL);
+        try{
+            if(contentLens==null)contentLens=new ContentLens(app);
+            int padding=app.dp(48),width=getWidth()+padding*2,height=getHeight()+padding*2;
+            Canvas recording=contentLens.begin(width,height);recording.translate(padding,padding);
+            try{super.dispatchDraw(recording);}finally{contentLens.end();}
+            // Same isolated frosted panel and tabs are refracted together, as in CombinedBackdrop.
+            recording=contentLens.combined.beginRecording();
+            try{
+                recording.translate(padding,padding);backdrop.drawBackdropSource(recording,this);drawPanel(recording);
+                recording.translate(-padding,-padding);recording.drawRenderNode(contentLens.source);
+            }finally{contentLens.combined.endRecording();}
+            contentLens.configure(slider,padding,clamp(activation.value,0,1),deformation.value,GlassQualityPolicy.refractionStrength(app),getResources().getDisplayMetrics().density);
+            int save=canvas.save();
+            try{canvas.clipOutPath(lensPath);canvas.translate(-padding,-padding);contentLens.draw(canvas,false);}finally{canvas.restoreToCount(save);}
+            save=canvas.save();
+            try{canvas.clipPath(lensPath);canvas.translate(-padding,-padding);contentLens.draw(canvas,true);}finally{canvas.restoreToCount(save);}
+            drawLensFinish(canvas);
+        }catch(RuntimeException error){
+            contentFailed=true;android.util.Log.w("GlassDock","Combined lens unavailable",error);drawLensFinish(canvas);super.dispatchDraw(canvas);
+        }
+    }
+    /** Isolated GPU equivalent of upstream rememberCombinedBackdrop(backdrop, tabsBackdrop). */
+    private static final class ContentLens {
+        final android.graphics.RenderNode source=new android.graphics.RenderNode("Kyant tabs backdrop"),
+            combined=new android.graphics.RenderNode("Kyant combined backdrop"),warped=new android.graphics.RenderNode("Kyant liquid selection");
+        final KyantGlass.Lens lens;
+        final RectF bounds=new RectF();
+        ContentLens(MainActivity app){lens=new KyantGlass.Lens(app,true);}
+        Canvas begin(int width,int height){source.setPosition(0,0,width,height);combined.setPosition(0,0,width,height);warped.setPosition(0,0,width,height);return source.beginRecording();}
+        void end(){source.endRecording();Canvas c=warped.beginRecording();try{c.drawRenderNode(combined);}finally{warped.endRecording();}}
+        void configure(RectF shape,int padding,float pressure,float deformation,float strength,float dp){
+            bounds.set(shape);bounds.offset(padding,padding);float progress=.22f+.78f*pressure;
+            warped.setRenderEffect(lens.effect(null,bounds,dp*10*progress,dp*14*progress*strength,deformation*-.045f));
+        }
+        void draw(Canvas c,boolean refracted){c.drawRenderNode(refracted?warped:source);}
+        void release(){source.discardDisplayList();combined.discardDisplayList();warped.discardDisplayList();}
     }
     @Override protected boolean drawChild(Canvas canvas,View child,long drawingTime){
         float a=clamp(activation.value,0,1),center=position.value+tabs[selected].getWidth()/2f;
         float influence=clamp(1-Math.abs(child.getLeft()+child.getWidth()/2f-center)/(child.getWidth()*.8f),0,1);
         int save=canvas.save();
-        canvas.scale(1+a*influence*.10f,1+a*influence*.13f,child.getLeft()+child.getWidth()/2f,getHeight()/2f);
+        canvas.scale(1+a*influence*.05f,1+a*influence*.065f,child.getLeft()+child.getWidth()/2f,getHeight()/2f);
         canvas.translate(deformation.value*app.dp(1.5f)*influence,0);
         try{return super.drawChild(canvas,child,drawingTime);}finally{canvas.restoreToCount(save);}
     }
     @Override public void onWindowFocusChanged(boolean focus){super.onWindowFocusChanged(focus);if(!focus&&touchActive)endGesture(false);}
     @Override protected void onVisibilityChanged(View changed,int visibility){super.onVisibilityChanged(changed,visibility);if(visibility!=VISIBLE&&tabs!=null&&tabs[0]!=null)resetMotion();}
-    @Override protected void onDetachedFromWindow(){resetMotion();super.onDetachedFromWindow();}
+    @Override protected void onDetachedFromWindow(){resetMotion();if(contentLens!=null){contentLens.release();contentLens=null;}super.onDetachedFromWindow();}
     private void resetMotion(){
         removeCallbacks(frame);removeCallbacks(longPress);removeCallbacks(previewRelease);recycleTracker();ticking=touchActive=dragging=held=verticalCancelled=false;pointerId=-1;
         activation.target=deformation.target=dockShift.target=jelly.target=0;activation.snap();deformation.snap();dockShift.snap();jelly.snap();
@@ -261,7 +317,7 @@ final class GlassDock extends LinearLayout {
         final Icon icon;final TextView label;
         Tab(String name,int index){
             super(app);setOrientation(VERTICAL);setGravity(Gravity.CENTER);setClickable(true);setFocusable(true);setContentDescription("导航"+name);setMinimumHeight(app.dp(48));
-            icon=new Icon(index);icon.setImportantForAccessibility(IMPORTANT_FOR_ACCESSIBILITY_NO);addView(icon,new LayoutParams(app.dp(23),app.dp(23)));
+            icon=new Icon(index);icon.setImportantForAccessibility(IMPORTANT_FOR_ACCESSIBILITY_NO);addView(icon,new LayoutParams(app.dp(24),app.dp(24)));
             label=app.text(name,11,INACTIVE);label.setGravity(Gravity.CENTER);label.setIncludeFontPadding(false);label.setImportantForAccessibility(IMPORTANT_FOR_ACCESSIBILITY_NO);addView(label);
         }
         @Override public void onInitializeAccessibilityNodeInfo(AccessibilityNodeInfo node){super.onInitializeAccessibilityNodeInfo(node);node.setClassName("android.widget.Button");node.setSelected(isSelected());}

@@ -3,10 +3,11 @@ use serde_json::{json, Value};
 use std::collections::{BTreeMap, BTreeSet};
 use std::net::{Ipv4Addr, SocketAddrV4};
 
-pub const BUTTONS: [&str; 14] = [
-    "a", "b", "x", "y", "lb", "rb", "lt", "rt", "select", "start", "up", "down", "left", "right",
+pub const BUTTONS: [&str; 15] = [
+    "a", "b", "x", "y", "lb", "rb", "lt", "rt", "select", "start", "xbox", "up", "down", "left",
+    "right",
 ];
-pub const CONTROLS: [&str; 22] = [
+pub const CONTROLS: [&str; 23] = [
     "a",
     "b",
     "x",
@@ -17,6 +18,7 @@ pub const CONTROLS: [&str; 22] = [
     "rt",
     "select",
     "start",
+    "xbox",
     "up",
     "down",
     "left",
@@ -103,6 +105,8 @@ pub struct Placement {
     pub y: Option<f32>,
     pub scale: f32,
     pub hidden: bool,
+    pub width: f32,
+    pub height: f32,
 }
 impl Default for Placement {
     fn default() -> Self {
@@ -111,6 +115,8 @@ impl Default for Placement {
             y: None,
             scale: 1.0,
             hidden: false,
+            width: 1.0,
+            height: 1.0,
         }
     }
 }
@@ -149,6 +155,11 @@ pub struct Settings {
     pub haptics: bool,
     pub preset: String,
     pub layout: BTreeMap<String, Placement>,
+    pub linear_triggers: bool,
+    pub gyro_enabled: bool,
+    pub gyro_range: f32,
+    pub gyro_deadzone: f32,
+    pub gyro_invert: bool,
 }
 impl Default for Settings {
     fn default() -> Self {
@@ -163,19 +174,28 @@ impl Default for Settings {
             haptics: true,
             preset: "general".into(),
             layout: BTreeMap::new(),
+            linear_triggers: false,
+            gyro_enabled: false,
+            gyro_range: 45.0,
+            gyro_deadzone: 2.0,
+            gyro_invert: false,
         }
     }
 }
 impl Settings {
     // Preserve saved layouts and feel settings when upgrading keyboard templates.
     pub fn migrate_keyboard_mapping(&mut self) {
-        if self.mapping.len() == CONTROLS.len()
-            && CONTROLS
-                .iter()
-                .all(|c| self.mapping.get(*c).is_some_and(|k| legacy_key(k)))
-        {
+        // Old templates may still carry the removed manual recenter control.
+        self.layout.remove("calibrate");
+        let old = CONTROLS
+            .iter()
+            .filter(|c| **c != "xbox")
+            .all(|c| self.mapping.get(*c).is_some_and(|k| legacy_key(k)));
+        if old && [CONTROLS.len(), CONTROLS.len() - 1].contains(&self.mapping.len()) {
             self.mapping = Self::default().mapping;
             self.preset = "general".into();
+        } else if self.mapping.len() == CONTROLS.len() - 1 && !self.mapping.contains_key("xbox") {
+            self.mapping.insert("xbox".into(), "xbox".into());
         }
     }
     pub fn validate(&self) -> Result<(), String> {
@@ -193,8 +213,21 @@ impl Settings {
         {
             return Err("手感设置无效".into());
         }
+        if !self.gyro_range.is_finite()
+            || !(15.0..=90.0).contains(&self.gyro_range)
+            || !self.gyro_deadzone.is_finite()
+            || !(0.0..=10.0).contains(&self.gyro_deadzone)
+        {
+            return Err("陀螺仪设置无效".into());
+        }
         for (id, p) in &self.layout {
             if !(BUTTONS.contains(&id.as_str()) || ["move", "look"].contains(&id.as_str()))
+                || !p.width.is_finite()
+                || !(0.6..=3.0).contains(&p.width)
+                || !p.height.is_finite()
+                || !(0.6..=4.0).contains(&p.height)
+                || (!["lb", "lt", "rb", "rt"].contains(&id.as_str())
+                    && (p.width != 1.0 || p.height != 1.0))
                 || !p.scale.is_finite()
                 || !(0.6..=1.6).contains(&p.scale)
                 || p.x
@@ -233,15 +266,18 @@ struct Touch {
     control: String,
     x: f32,
     y: f32,
-    start_y: f32,
 }
 #[derive(Default)]
 pub struct Input {
     touches: BTreeMap<i32, Touch>,
+    pub linear_triggers: bool,
+    pub trigger_horizontal: [bool; 2],
+    pub gyro_x: f32,
 }
 impl Input {
     pub fn clear(&mut self) {
         self.touches.clear();
+        self.gyro_x = 0.0;
     }
     pub fn touch(
         &mut self,
@@ -280,7 +316,6 @@ impl Input {
                             control: control.into(),
                             x,
                             y,
-                            start_y: y,
                         },
                     );
                 }
@@ -297,6 +332,7 @@ impl Input {
     }
     pub fn state(&self) -> InputState {
         let mut state = InputState::default();
+        state.axes[0] = self.gyro_x;
         for touch in self.touches.values() {
             if touch.control == "move" || touch.control == "look" {
                 let radius = (touch.x * touch.x + touch.y * touch.y).sqrt().max(1.0);
@@ -306,7 +342,17 @@ impl Input {
             } else if touch.control == "lt" || touch.control == "rt" {
                 let index = usize::from(touch.control == "rt");
                 // Press starts at full travel; dragging down reduces pressure.
-                let value = (1.0 - (touch.y - touch.start_y) / 2.0).clamp(0.0, 1.0);
+                let value = if self.linear_triggers {
+                    ((if self.trigger_horizontal[index] {
+                        touch.x
+                    } else {
+                        touch.y
+                    }) + 1.0)
+                        / 2.0
+                } else {
+                    1.0
+                }
+                .clamp(0.0, 1.0);
                 state.triggers[index] = state.triggers[index].max(value);
                 state.buttons.insert(touch.control.clone());
             } else {
@@ -336,14 +382,15 @@ pub fn layout(settings: &Settings) -> Value {
         ("y", "Y", "Y", 858., 189., 66., 66.),
         ("select", "View", "View 背包", 442., 188., 90., 46.),
         ("start", "Menu", "Menu 暂停", 558., 188., 90., 46.),
+        ("xbox", "Xbox", "Xbox · 呼出 Game Bar", 500., 104., 54., 54.),
         ("settings", "设置", "手柄设置", 935., 29., 86., 40.),
     ];
     json!(controls
         .into_iter()
         .map(|(id, label, description, x, y, w, h)| {
             let p = settings.layout.get(id).cloned().unwrap_or_default();
-            let w = w * scale * p.scale;
-            let h = h * scale * p.scale;
+            let w = (w * scale * p.scale * p.width).min(980.0);
+            let h = (h * scale * p.scale * p.height).min(430.0);
             json!({
                 "id": id, "label": label, "description": description,
                 "x": p.x.unwrap_or(x).clamp(w/2.0+4.0, 996.0-w/2.0),
@@ -357,6 +404,80 @@ pub fn layout(settings: &Settings) -> Value {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn saved_recenter_control_is_removed_without_losing_other_settings() {
+        let mut settings = Settings {
+            gyro_enabled: true,
+            gyro_range: 60.0,
+            ..Settings::default()
+        };
+        settings
+            .layout
+            .insert("calibrate".into(), Placement::default());
+        settings.layout.insert(
+            "a".into(),
+            Placement {
+                hidden: true,
+                ..Placement::default()
+            },
+        );
+        let mut loaded: Settings = serde_json::from_value(json!(settings)).unwrap();
+        loaded.migrate_keyboard_mapping();
+        loaded.validate().unwrap();
+        assert!(!loaded.layout.contains_key("calibrate"));
+        assert!(loaded.layout["a"].hidden);
+        assert!(loaded.gyro_enabled);
+        assert_eq!(loaded.gyro_range, 60.0);
+        assert!(layout(&loaded)
+            .as_array()
+            .unwrap()
+            .iter()
+            .all(|p| p["id"] != "calibrate"));
+    }
+    #[test]
+    fn old_native_templates_and_rectangular_pedals() {
+        let mut s = Settings::default();
+        s.mapping.remove("xbox");
+        s.mapping.insert("a".into(), "y".into());
+        s.migrate_keyboard_mapping();
+        s.validate().unwrap();
+        assert_eq!(s.mapping["a"], "y");
+        assert_eq!(s.mapping["xbox"], "xbox");
+        s.layout.insert(
+            "lt".into(),
+            Placement {
+                width: 0.6,
+                height: 4.0,
+                ..Placement::default()
+            },
+        );
+        s.validate().unwrap();
+        let controls = layout(&s);
+        let lt = controls
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|p| p["id"] == "lt")
+            .unwrap();
+        assert!(lt["height"].as_f64().unwrap() > lt["width"].as_f64().unwrap());
+        let mut input = Input {
+            linear_triggers: true,
+            trigger_horizontal: [false, true],
+            ..Input::default()
+        };
+        input.touch(0, "down", "lt", 1.0, -1.0).unwrap();
+        assert_eq!(input.state().triggers[0], 0.0);
+        input.touch(0, "move", "lt", -1.0, 0.5).unwrap();
+        assert_eq!(input.state().triggers[0], 0.75);
+        input.touch(1, "down", "rt", -0.5, 1.0).unwrap();
+        assert_eq!(input.state().triggers, [0.75, 0.25]);
+        input.touch(0, "up", "lt", 0.0, 0.0).unwrap();
+        assert_eq!(input.state().triggers, [0.0, 0.25]);
+        input.clear();
+        input.linear_triggers = false;
+        input.touch(0, "down", "lt", -1.0, -1.0).unwrap();
+        assert_eq!(input.state().triggers[0], 1.0);
+    }
     #[test]
     fn keyboard_settings_migrate_without_losing_layout_or_feel() {
         let mut settings = Settings {
@@ -384,11 +505,14 @@ mod tests {
     }
     #[test]
     fn triggers_support_continuous_travel_and_independent_release() {
-        let mut input = Input::default();
-        input.touch(0, "down", "lt", 0., 0.).unwrap();
-        input.touch(1, "down", "rt", 0., 0.).unwrap();
+        let mut input = Input {
+            linear_triggers: true,
+            ..Input::default()
+        };
+        input.touch(0, "down", "lt", 0., 1.).unwrap();
+        input.touch(1, "down", "rt", 0., 1.).unwrap();
         assert_eq!(input.state().triggers, [1., 1.]);
-        input.touch(0, "move", "lt", 0., 1.).unwrap();
+        input.touch(0, "move", "lt", 0., 0.).unwrap();
         assert_eq!(input.state().triggers, [0.5, 1.]);
         input.touch(0, "up", "lt", 0., 1.).unwrap();
         assert_eq!(input.state().triggers, [0., 1.]);
@@ -421,6 +545,7 @@ mod tests {
                 y: Some(450.),
                 scale: 1.6,
                 hidden: true,
+                ..Placement::default()
             },
         );
         settings.validate().unwrap();

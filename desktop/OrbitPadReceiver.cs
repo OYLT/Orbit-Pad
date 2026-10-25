@@ -31,7 +31,6 @@ internal sealed class ReceiverService : IDisposable {
     internal DirectConnections Direct { get; private set; }
     public bool Running { get { return process != null && !process.HasExited; } }
     public string BaseUrl { get { return "http://127.0.0.1:" + Port; } }
-    public string BrowserUrl { get { return "http://localhost:" + Port; } }
 
     public ReceiverService() {
         http = new HttpClient(new HttpClientHandler { UseProxy = false });
@@ -244,29 +243,28 @@ internal sealed class ReceiverForm : Form {
         right.RowStyles.Add(new RowStyle(SizeType.Absolute, 34)); right.RowStyles.Add(new RowStyle(SizeType.Absolute, 188));
         right.RowStyles.Add(new RowStyle(SizeType.Absolute, 44)); right.RowStyles.Add(new RowStyle(SizeType.Absolute, 30));
         right.RowStyles.Add(new RowStyle(SizeType.Percent, 100));
-        Cell(right, Label("扫码体验 / 手机 App", 14, TextColor, true), 0);
+        Cell(right, Label("Android App 扫码配对", 14, TextColor, true), 0);
         qr.SizeMode = PictureBoxSizeMode.Zoom; qr.Dock = DockStyle.Fill; qr.BackColor = Color.White;
         qr.Margin = new Padding(0, 0, 0, 8); Cell(right, qr, 1);
-        Cell(right, Label("在手机 App 连接页选择扫码。\n浏览器也可使用此二维码。", 9, Muted), 2);
+        Cell(right, Label("在 Android App 连接页选择扫码。\n识别后自动连接电脑。", 9, Muted), 2);
         Cell(right, Label("连接小贴士", 11, Mint, true), 3);
         Cell(right, Label("01  手机与电脑连接同一个 Wi-Fi\n02  防火墙允许专用网络连接\n03  手机横屏，开始游戏", 9, Muted), 4);
         scan.Controls.Add(right); root.Controls.Add(scan, 1, 1);
 
-        var actions = new TableLayoutPanel { Dock = DockStyle.Fill, ColumnCount = 7, RowCount = 1, Padding = new Padding(0, 18, 0, 8) };
-        for (int i = 0; i < 7; i++) actions.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100f / 7));
+        var actions = new TableLayoutPanel { Dock = DockStyle.Fill, ColumnCount = 6, RowCount = 1, Padding = new Padding(0, 18, 0, 8) };
+        for (int i = 0; i < 6; i++) actions.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100f / 6));
         actions.Controls.Add(ConfigureButton(power, "停止接收", true)); actions.Controls.Add(ConfigureButton(pause, "暂停输入"));
         actions.Controls.Add(ConfigureButton(reset, "重置配对"));
         var usb = ConfigureButton(new MaterialButton(), "USB 连接"); actions.Controls.Add(usb);
         var bluetooth = ConfigureButton(new MaterialButton(), "蓝牙连接"); actions.Controls.Add(bluetooth);
         var copy = ConfigureButton(new MaterialButton(), "复制地址"); actions.Controls.Add(copy);
-        var console = ConfigureButton(new MaterialButton(), "高级控制台"); actions.Controls.Add(console); Cell(root, actions, 2, 2);
+        Cell(root, actions, 2, 2);
         modeLabel.AutoSize = true; modeLabel.ForeColor = Muted; modeLabel.Font = new Font("Microsoft YaHei UI", 8);
         modeLabel.Text = "Xbox 360 / XInput · 原生手柄驱动 · 最小化保留后台，关闭窗口停止接收"; Cell(root, modeLabel, 3, 2);
         Controls.Add(root);
 
         networks.SelectedIndexChanged += async (sender, args) => { try { await UpdateQr(); } catch { } };
         copy.Click += (sender, args) => { if (networks.SelectedItem != null) { Clipboard.SetText(networks.SelectedItem.ToString()); statusLabel.Text = "● 连接地址已复制"; } };
-        console.Click += (sender, args) => { if (service.Running) Process.Start(service.BrowserUrl); };
         usb.Click += async (sender, args) => {
             usb.Enabled = false;
             try {

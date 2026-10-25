@@ -1,6 +1,10 @@
 package app.orbitpad.controller;
 
 import android.app.AlertDialog;
+import android.animation.ValueAnimator;
+import android.animation.Animator;
+import android.animation.AnimatorListenerAdapter;
+import android.view.animation.PathInterpolator;
 import android.content.Intent;
 import android.graphics.Canvas;
 import android.graphics.Paint;
@@ -26,14 +30,16 @@ final class AppShell {
     final GlassBackdrop view;
     private GlassDock glassDock;
     private ScrollView currentScroll;
+    private ScrollView outgoingScroll;
+    private ValueAnimator pageTransition;
     private final int[] scrollPositions=new int[4];
     private String draftAddress,draftCode;
     private final FrameLayout page;
     private LinearLayout content;
     private int selected;
     private String mode="scan";
-    private TextView connectionStatus, formMessage;
-    private Button connect;
+    private TextView connectionStatus, homeConnectionStatus, formMessage;
+    private Button connect, homePlay;
     private EditText address, code;
     private LinearLayout connectionBody;
     private String stickyError;
@@ -68,9 +74,14 @@ final class AppShell {
                 keyboardVisible=windowSize[1]-height>app.dp(100);applyInsets();
             });
         }
+        view.addOnAttachStateChangeListener(new View.OnAttachStateChangeListener(){
+            public void onViewAttachedToWindow(View v){}
+            public void onViewDetachedFromWindow(View v){finishPageTransition();}
+        });
         dock();show(initial);view.requestApplyInsets();
     }
     private void applyInsets(){
+        view.setTopFade(safeTop,currentScroll==null?0:Math.min(1,currentScroll.getScrollY()/(float)app.dp(36)));
         // The page fills the whole window; only controls avoid system gesture/cutout areas.
         if(currentScroll!=null)currentScroll.setPadding(safeLeft,safeTop,safeRight,keyboardBottom);
         if(content!=null)content.setPadding(app.dp(24),app.dp(28),app.dp(24),keyboardVisible?app.dp(24):glassDock.preferredHeight()+app.dp(52)+safeBottom);
@@ -83,20 +94,58 @@ final class AppShell {
     }
     private void show(int index) {
         boolean switching=selected!=index;
+        finishPageTransition();
+        int direction=index>selected?1:-1;
+        ScrollView previous=currentScroll;
+        boolean animate=switching&&previous!=null&&view.isAttachedToWindow()&&ValueAnimator.areAnimatorsEnabled();
         if(currentScroll!=null)scrollPositions[selected]=currentScroll.getScrollY();
         if(address!=null){draftAddress=address.getText().toString();draftCode=code.getText().toString();}
         address=null;code=null;
-        selected=index;page.removeAllViews();connectionStatus=null;formMessage=null;connect=null;aboutBody=null;aboutToggle=null;refractionHint=null;qualityButton=null;
+        selected=index;page.removeAllViews();connectionStatus=null;homeConnectionStatus=null;homePlay=null;formMessage=null;connect=null;aboutBody=null;aboutToggle=null;refractionHint=null;qualityButton=null;
         ScrollView scroll=new ScrollView(app);currentScroll=scroll;scroll.setFillViewport(true);scroll.setClipToPadding(false);
-        scroll.setOnScrollChangeListener((v,x,y,oldX,oldY)->glassDock.onScroll(y-oldY,y));
+        scroll.setOnScrollChangeListener((v,x,y,oldX,oldY)->{
+            if(currentScroll!=v)return;
+            glassDock.onScroll(y-oldY,y);view.setTopFade(safeTop,Math.min(1,y/(float)app.dp(36)));
+        });
         content=new LinearLayout(app);content.setOrientation(LinearLayout.VERTICAL);
         content.setPadding(app.dp(24),app.dp(28),app.dp(24),glassDock.preferredHeight()+app.dp(52));
         scroll.addView(content,new ScrollView.LayoutParams(-1,-2));page.addView(scroll);
         String[] titles={"你的手柄，你来定义。","连接你的电脑","主题","设置"};
-        add(app.text("ORBIT PAD",12,PRIMARY),0);add(app.text(titles[index],28,FG),12);
+        if(index==0){
+            LinearLayout header=new LinearLayout(app);header.setGravity(Gravity.CENTER_VERTICAL);
+            header.addView(app.text("ORBIT PAD",12,PRIMARY),new LinearLayout.LayoutParams(0,-2,1));
+            homeConnectionStatus=app.text("",13,MUTED);homeConnectionStatus.setGravity(Gravity.CENTER);
+            homeConnectionStatus.setMinHeight(app.dp(48));homeConnectionStatus.setPadding(app.dp(12),0,app.dp(12),0);
+            homeConnectionStatus.setBackground(app.rounded(SURFACE,0xff38333f,24));
+            homeConnectionStatus.setOnClickListener(v->show(1));header.addView(homeConnectionStatus);add(header,0);
+        }else add(app.text("ORBIT PAD",12,PRIMARY),0);
+        add(app.text(titles[index],28,FG),12);
         if(index==0)home();else if(index==1)connection();else if(index==3)settingsPage();
         glassDock.setSelectedIndex(index);applyInsets();update(app.snapshot);
-        if(switching)scroll.post(()->scroll.scrollTo(0,scrollPositions[index]));
+        if(switching)scroll.post(()->{if(currentScroll==scroll)scroll.scrollTo(0,scrollPositions[index]);});
+        if(animate)startPageTransition(previous,scroll,direction);
+    }
+    private void finishPageTransition(){
+        if(pageTransition!=null){ValueAnimator running=pageTransition;pageTransition=null;running.cancel();}
+        if(outgoingScroll!=null){page.removeView(outgoingScroll);outgoingScroll=null;}
+        if(currentScroll!=null){currentScroll.setTranslationX(0);currentScroll.setAlpha(1);currentScroll.setImportantForAccessibility(View.IMPORTANT_FOR_ACCESSIBILITY_AUTO);}
+    }
+    private void startPageTransition(ScrollView previous,ScrollView next,int direction){
+        outgoingScroll=previous;previous.setImportantForAccessibility(View.IMPORTANT_FOR_ACCESSIBILITY_NO_HIDE_DESCENDANTS);
+        page.addView(previous,0);float distance=app.dp(42)*direction;
+        next.setTranslationX(distance);next.setAlpha(0);
+        ValueAnimator animator=ValueAnimator.ofFloat(0,1);pageTransition=animator;
+        animator.setDuration(320);animator.setInterpolator(new PathInterpolator(.22f,.8f,.25f,1));
+        animator.addUpdateListener(a->{
+            float progress=(float)a.getAnimatedValue();next.setTranslationX(distance*(1-progress));next.setAlpha(progress);
+            previous.setTranslationX(-distance*.65f*progress);previous.setAlpha(1-progress);
+            float scrollY=previous.getScrollY()*(1-progress)+next.getScrollY()*progress;
+            view.setTopFade(safeTop,Math.min(1,scrollY/app.dp(36)));view.invalidate();
+        });
+        animator.addListener(new AnimatorListenerAdapter(){@Override public void onAnimationEnd(Animator animation){
+            page.removeView(previous);next.setTranslationX(0);next.setAlpha(1);
+            if(pageTransition==animation){pageTransition=null;outgoingScroll=null;view.setTopFade(safeTop,Math.min(1,next.getScrollY()/(float)app.dp(36)));}
+        }});animator.start();
     }
     void saveState(Bundle state){
         state.putInt("shell_page",selected);state.putString("shell_mode",mode);state.putBoolean("shell_about_expanded",aboutExpanded);
@@ -146,8 +195,8 @@ final class AppShell {
         }
         Button save=app.button("＋ 保存为新模板");save.setOnClickListener(v->saveTemplate());app.add(templates,save,16);add(templates,20);
         Button mapping=secondary("按键映射与手感设置");mapping.setOnClickListener(v->app.showSettings());add(mapping,16);
-        Button play=app.button(app.snapshot.optBoolean("connected")?"进入手柄":"扫码连接电脑");
-        play.setOnClickListener(v->{if(app.snapshot.optBoolean("connected"))app.openController();else show(1);});add(play,16);
+        homePlay=app.button("");
+        homePlay.setOnClickListener(v->{if(app.snapshot.optBoolean("connected"))app.openController();else show(1);});add(homePlay,16);
     }
     private JSONArray templates(){try{return new JSONArray(app.getPreferences(0).getString("templates_v1","[]"));}catch(Exception e){return new JSONArray();}}
     private void storeTemplates(JSONArray data){app.getPreferences(0).edit().putString("templates_v1",data.toString()).apply();}
@@ -208,6 +257,14 @@ final class AppShell {
         if(selected!=0){show(0);return true;}return false;
     }
     void update(JSONObject snapshot) {
+        boolean connected=snapshot.optBoolean("connected"),reconnecting=snapshot.optBoolean("reconnectable");
+        if(homeConnectionStatus!=null){
+            String label=connected?"● 已连接":reconnecting?(app.isConnecting()?"◌ 连接中":"◌ 重连中"):"○ 未连接";
+            if(connected&&!snapshot.isNull("rtt"))label+=" · "+snapshot.optLong("rtt")+" ms";
+            homeConnectionStatus.setText(label);homeConnectionStatus.setTextColor(connected?0xffa8dab5:reconnecting?0xffffd180:MUTED);
+            homeConnectionStatus.setContentDescription("手柄连接状态："+label+"，点击管理连接");
+        }
+        if(homePlay!=null)homePlay.setText(connected?"进入手柄":"扫码连接电脑");
         if(connectionStatus!=null)connectionStatus.setText(snapshot.optBoolean("connected")?"● 已连接 · "+(snapshot.isNull("rtt")?"测量延迟中":snapshot.optLong("rtt")+" ms"):"○ "+snapshot.optString("message","等待连接"));
         if(connect!=null)connect.setEnabled(!app.isConnecting());
         if(formMessage!=null&&stickyError==null&&app.isConnecting())formMessage.setText(snapshot.optString("message"));
@@ -246,7 +303,13 @@ final class AppShell {
         app.add(aboutBody,app.text("连接方式\n二维码 / 局域网 / USB 直连 / 蓝牙 RFCOMM\n\n系统支持\nAndroid 8.0 及以上 · ARM64 / x86_64\n\n电脑输出\nXbox 360 / XInput 原生手柄\n\n应用包名\napp.orbitpad.controller",14,MUTED),12);
         Button project=secondary("项目主页 · OYLT / Orbit-Pad");project.setOnClickListener(v->app.startActivity(new Intent(Intent.ACTION_VIEW,Uri.parse("https://github.com/OYLT/Orbit-Pad"))));app.add(aboutBody,project,18);
         app.add(aboutBody,app.text("组件与隐私",18,FG),24);
-        app.add(aboutBody,app.text("二维码识别：ZXing 3.5.3（Apache 2.0）。\n蓝牙连接：Android Bluetooth API。\n相机仅在扫码时打开，二维码在手机本地识别。",14,MUTED),12);
+        app.add(aboutBody,app.text("玻璃渲染：AndroidLiquidGlass / Backdrop（Kyant，Apache 2.0，原生适配）。\n二维码识别：ZXing 3.5.3（Apache 2.0）。\n蓝牙连接：Android Bluetooth API。\n相机仅在扫码时打开，二维码在手机本地识别。",14,MUTED),12);
+        Button glassLicense=secondary("AndroidLiquidGlass 开源许可");
+        glassLicense.setOnClickListener(v->{
+            TextView license=app.text(KyantGlass.asset(app,"licenses/AndroidLiquidGlass-NOTICE.txt")+"\n"+KyantGlass.asset(app,"licenses/AndroidLiquidGlass-LICENSE.txt"),12,MUTED);
+            license.setPadding(app.dp(20),app.dp(12),app.dp(20),app.dp(20));ScrollView body=new ScrollView(app);body.addView(license);
+            new AlertDialog.Builder(app).setTitle("AndroidLiquidGlass · Apache 2.0").setView(body).setPositiveButton("关闭",null).show();
+        });app.add(aboutBody,glassLicense,12);
         app.add(about,aboutBody,0);add(about,20);setAboutExpanded(aboutExpanded);
     }
     private String qualityLabel(){

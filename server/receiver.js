@@ -1,20 +1,10 @@
 import http from 'node:http';
-import { readFile } from 'node:fs/promises';
 import { networkInterfaces, hostname } from 'node:os';
 import { randomBytes, randomInt, timingSafeEqual } from 'node:crypto';
 import { WebSocketServer, WebSocket } from 'ws';
 import QRCode from 'qrcode';
-import { DEFAULT_MAPPING, normalizeState, stateToGamepad, validMapping, legacyMapping, emptyReport, describeReport } from '../public/controller-core.js';
+import { DEFAULT_MAPPING, normalizeState, stateToGamepad, validMapping, legacyMapping, emptyReport, describeReport } from './controller-core.js';
 
-const STATIC = new Map([
-  ['/', ['index.html', 'text/html; charset=utf-8']],
-  ['/controller', ['index.html', 'text/html; charset=utf-8']],
-  ['/app.js', ['app.js', 'text/javascript; charset=utf-8']],
-  ['/styles.css', ['styles.css', 'text/css; charset=utf-8']],
-  ['/controller-core.js', ['controller-core.js', 'text/javascript; charset=utf-8']],
-  ['/icon.svg', ['icon.svg', 'image/svg+xml']],
-  ['/manifest.webmanifest', ['manifest.webmanifest', 'application/manifest+json']],
-]);
 const emptyState = () => ({ buttons: [], axes: [0, 0, 0, 0] });
 const local = req => ['127.0.0.1', '::1', '::ffff:127.0.0.1'].includes(req.socket.remoteAddress);
 
@@ -71,7 +61,7 @@ export function createReceiver({ input, port = 3210, host = '0.0.0.0', now = Dat
         return reply(res, 200, { app: 'orbit-pad', code: pairCode });
       }
       if (url.pathname.startsWith('/api/host')) {
-        if (!local(req)) return reply(res, 403, { error: '请在电脑上打开 localhost 管理接收端' });
+        if (!local(req)) return reply(res, 403, { error: '仅电脑接收端可管理此接口' });
         if (req.method === 'GET' && url.pathname === '/api/host') {
           const urls = addresses.map(ip => `http://${ip}:${listeningPort}`);
           return reply(res, 200, { ...status(), pairCode, urls, report: input.report, inputs: describeReport(input.report), keys: [],
@@ -125,11 +115,7 @@ export function createReceiver({ input, port = 3210, host = '0.0.0.0', now = Dat
         tokens.set(token, { expires: now() + 12 * 60 * 60 * 1000, device: String(data.device || '手机手柄').slice(0, 50) });
         return reply(res, 200, { token });
       }
-      if (req.method === 'GET' && STATIC.has(url.pathname)) {
-        const [name, mime] = STATIC.get(url.pathname);
-        return reply(res, 200, await readFile(new URL(`../public/${name}`, import.meta.url)), mime);
-      }
-      reply(res, 404, { error: '未找到页面' });
+      reply(res, 404, { error: '仅提供原生 App 连接接口' });
     } catch (error) {
       reply(res, 400, { error: error instanceof SyntaxError ? '请求格式错误' : '请求无法处理' });
     }
@@ -172,7 +158,7 @@ export function createReceiver({ input, port = 3210, host = '0.0.0.0', now = Dat
         if (data.type === 'mapping') {
           if (!validMapping(data.mapping) && !legacyMapping(data.mapping)) throw new Error('无效映射');
           release(ws);
-          ws.mapping = { ...(validMapping(data.mapping) ? data.mapping : DEFAULT_MAPPING) };
+          ws.mapping = { ...DEFAULT_MAPPING, ...(validMapping(data.mapping) ? data.mapping : {}) };
           return;
         }
         if (data.type === 'deadzone') {

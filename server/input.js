@@ -2,7 +2,7 @@ import { spawn } from 'node:child_process';
 import { existsSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { EventEmitter } from 'node:events';
-import { emptyReport } from '../public/controller-core.js';
+import { emptyReport } from './controller-core.js';
 
 export class GamepadBridge extends EventEmitter {
   constructor({ dryRun = false, executable = fileURLToPath(new URL('../native/bin/OrbitPadGamepad.exe', import.meta.url)) } = {}) {

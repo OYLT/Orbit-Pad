@@ -16,7 +16,7 @@ parser.add_argument('--serial', required=True)
 parser.add_argument('--address', required=True)
 parser.add_argument('--port', type=int, default=3215)
 parser.add_argument('--output', default='artifacts/redmi-test')
-parser.add_argument('--suite', choices=['baseline', 'settings', 'shell', 'usb', 'camera', 'bluetooth', 'native'], default='baseline')
+parser.add_argument('--suite', choices=['baseline', 'settings', 'shell', 'usb', 'camera', 'bluetooth', 'native', 'racing', 'connection'], default='baseline')
 parser.add_argument('--native-output', action='store_true', help='Verify each phase against the real Windows XInput device.')
 parser.add_argument('--xinput-slot', type=int, choices=range(4), default=0)
 parser.add_argument('--bluetooth-name', default='LAPTOP-MHB9SRM0')
@@ -102,6 +102,8 @@ for line in device.stdout:
             actual = status()
             samples.append({'report': actual['report'], 'connected': actual['connected'], 'axes': actual['axes'], 'buttons': actual['buttons']})
             passed = active_controls(actual['report']) == expected and actual['connected'] == connected
+            if stage in ['racing-brake-quarter','racing-two-pedals']: passed = passed and abs(actual['report']['leftTrigger']-64)<=3
+            if stage in ['racing-two-pedals','racing-brake-released']: passed = passed and abs(actual['report']['rightTrigger']-191)<=3
             if stage == 'native-lt-half': passed = passed and abs(actual['report']['leftTrigger'] - 128) <= 2
             if stage == 'native-rt-quarter': passed = passed and abs(actual['report']['rightTrigger'] - 64) <= 2
             if args.native_output:
@@ -113,7 +115,7 @@ for line in device.stdout:
             time.sleep(.035)
         phases.append({'phase': stage, 'passed': passed, 'expected': sorted(expected), 'expectedConnected': connected, 'samples': samples, 'emittedMs': bundle.get('orbit_emitted_ms'), 'receivedMs': round(time.time()*1000)})
         print(f'{"PASS" if passed else "FAIL"}: {stage}; report={actual["report"]}; connected={actual["connected"]}', flush=True)
-        if stage in ['wrong-code-rejected', 'landscape-awake-connected', 'three-finger-dual-stick-and-a', 'material-settings-mapping', 'material-settings-feel', 'settings-back-preserves-connection', 'native-settings-saved', 'native-settings-restored', 'shell-home', 'shell-theme', 'shell-about', 'shell-scan-default', 'shell-editor-drag', 'shell-template-loaded', 'shell-usb-option', 'shell-bluetooth-option']:
+        if stage.startswith(('racing-', 'connection-')) or stage in ['wrong-code-rejected', 'landscape-awake-connected', 'three-finger-dual-stick-and-a', 'material-settings-mapping', 'material-settings-feel', 'settings-back-preserves-connection', 'native-settings-saved', 'native-settings-restored', 'shell-home', 'shell-theme', 'shell-about', 'shell-scan-default', 'shell-editor-drag', 'shell-template-loaded', 'shell-usb-option', 'shell-bluetooth-option']:
             shot = output / (stage + '.png')
             with shot.open('wb') as file:
                 subprocess.run([*adb, 'exec-out', 'screencap', '-p'], stdout=file, check=True)
@@ -131,7 +133,7 @@ report = {'device': 'Redmi K40 Pro+', 'model': prop('ro.product.model'), 'serial
           'android': prop('ro.build.version.release'), 'api': prop('ro.build.version.sdk'),
           'abi': prop('ro.product.cpu.abi'), 'version': version,
           'apkSha256': hashlib.sha256((root / f'releases/OrbitPad-Android-v{version}.apk').read_bytes()).hexdigest(),
-          'transport': {'usb': 'USB', 'bluetooth': 'Bluetooth RFCOMM', 'camera': 'none'}.get(args.suite,'Wi-Fi'), 'address': args.address,
+          'transport': {'usb': 'USB', 'bluetooth': 'Bluetooth RFCOMM', 'camera': 'none'}.get(args.suite,'USB / ADB reverse test tunnel' if args.address.startswith('127.0.0.1:') else 'Wi-Fi'), 'address': args.address,
           'suite': args.suite,
           'receiverMode': host['mode'], 'xinputVerified': args.native_output,
           'xinputSlot': args.xinput_slot if args.native_output else None,

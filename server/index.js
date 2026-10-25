@@ -1,6 +1,5 @@
 import { GamepadBridge } from './input.js';
 import { createReceiver } from './receiver.js';
-import { spawn } from 'node:child_process';
 
 const dryRun = process.argv.includes('--dry-run');
 const port = Number(process.env.PORT || 3210);
@@ -10,14 +9,11 @@ input.start();
 const receiver = createReceiver({ input, port, ownerToken: process.env.ORBIT_OWNER_TOKEN || '', onShutdown: shutdown });
 try {
   const result = await receiver.start();
-  console.log(`\n  ORBIT PAD  /  手机无线手柄\n\n  电脑管理端 → http://localhost:${result.port}\n  模式 → ${dryRun ? '预览（不会输出系统手柄输入）' : 'Xbox 360 原生手柄 / XInput'}\n`);
-  for (const ip of result.addresses) console.log(`  手机连接 → http://${ip}:${result.port}`);
+  console.log(`\n  ORBIT PAD  /  手机无线手柄\n\n  原生 App 接收服务 → 端口 ${result.port}\n  模式 → ${dryRun ? '预览（不会输出系统手柄输入）' : 'Xbox 360 原生手柄 / XInput'}\n`);
+  for (const ip of result.addresses) console.log(`  Android App 手动配对地址 → ${ip}:${result.port}`);
   console.log('\n  手机和电脑请连接同一个 Wi-Fi。按 Ctrl+C 退出。\n');
-  if (process.argv.includes('--open') && process.platform === 'win32') {
-    const opener = spawn('rundll32.exe', ['url.dll,FileProtocolHandler', `http://localhost:${result.port}`], { windowsHide: true, stdio: 'ignore', detached: true });
-    opener.on('error', () => console.log(`请手动打开 http://localhost:${result.port}`));
-    opener.unref();
-  }
+  const info = await (await fetch(`http://127.0.0.1:${result.port}/api/host`)).json();
+  console.log(`  配对码 → ${info.pairCode}\n`);
 } catch (error) {
   console.error(error.code === 'EADDRINUSE' ? `端口 ${port} 已被占用。请关闭已有接收端，或设置 PORT。` : error.message);
   await input.stop();

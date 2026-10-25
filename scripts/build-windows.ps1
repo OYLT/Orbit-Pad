@@ -5,7 +5,7 @@ Set-Location -LiteralPath $orbitRoot
 & "$PSScriptRoot\setup-gamepad.ps1" -IncludeDriver
 python scripts/setup-direct-connections.py
 if ($LASTEXITCODE -ne 0) { throw 'USB component setup failed.' }
-$orbitOut = Join-Path $orbitRoot 'releases\OrbitPad-Receiver-Windows-x64'
+$orbitOut = Join-Path $orbitRoot 'releases\OrbitPad-Receiver-Windows-x64-native'
 New-Item -ItemType Directory -Force -Path $orbitOut,(Join-Path $orbitOut 'app'),(Join-Path $orbitOut 'runtime'),(Join-Path $orbitRoot 'build\windows') | Out-Null
 $compiler = Join-Path $env:WINDIR 'Microsoft.NET\Framework64\v4.0.30319\csc.exe'
 if (-not (Test-Path -LiteralPath $compiler)) { throw 'The Windows .NET Framework C# compiler is required.' }
@@ -43,7 +43,7 @@ if (-not (Test-Path -LiteralPath $nodeLicense)) {
     Invoke-WebRequest -Uri "https://raw.githubusercontent.com/nodejs/node/$nodeVersion/LICENSE" -OutFile $nodeLicense -UseBasicParsing
 }
 Copy-Item -LiteralPath $nodeLicense -Destination (Join-Path $orbitOut 'runtime\NODE-LICENSE.txt') -Force
-foreach ($folder in @('server','native','public','node_modules')) {
+foreach ($folder in @('server','native','node_modules')) {
     Copy-Item -LiteralPath (Join-Path $orbitRoot $folder) -Destination (Join-Path $orbitOut 'app') -Recurse -Force
 }
 Copy-Item -LiteralPath (Join-Path $orbitRoot 'package.json') -Destination (Join-Path $orbitOut 'app\package.json') -Force
@@ -68,6 +68,6 @@ if ($selfTest.ExitCode -ne 0) {
     throw 'Packaged Windows receiver self-test failed.'
 }
 Get-Content -LiteralPath $reportPath
-$archive = Join-Path $orbitRoot 'releases\OrbitPad-Receiver-Windows-x64-v0.5.0-xinput.zip'
+$archive = Join-Path $orbitRoot 'releases\OrbitPad-Receiver-Windows-x64-v0.5.0-native.zip'
 Compress-Archive -LiteralPath $orbitOut -DestinationPath $archive -CompressionLevel Optimal -Force
 Write-Output "Windows receiver ready: $archive"

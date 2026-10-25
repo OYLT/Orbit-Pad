@@ -28,13 +28,43 @@ internal static class GamepadBridge {
     [DllImport("ViGEmClient.dll", CallingConvention = CallingConvention.Cdecl)] private static extern uint vigem_target_x360_update(IntPtr client, IntPtr target, Report report);
     private static readonly object Gate = new object();
     private static IntPtr client, target;
-    private static bool added, connected, failed;
+    private static bool added, connected, failed, xboxHeld;
+    [StructLayout(LayoutKind.Sequential)] private struct KeyboardInput {
+        public ushort Key, Scan; public uint Flags, Time; public UIntPtr Extra;
+    }
+    [StructLayout(LayoutKind.Explicit)] private struct InputUnion {
+        [FieldOffset(0)] public KeyboardInput Keyboard;
+        // INPUT union size is 32 bytes on x64 (MOUSEINPUT).
+        [FieldOffset(0)] public long Mouse0;
+        [FieldOffset(8)] public long Mouse1;
+        [FieldOffset(16)] public long Mouse2;
+        [FieldOffset(24)] public long Mouse3;
+    }
+    [StructLayout(LayoutKind.Sequential)] private struct SystemInput { public uint Type; public InputUnion Data; }
+    [DllImport("user32.dll", SetLastError=true)] private static extern uint SendInput(uint count, SystemInput[] inputs, int size);
+    private static SystemInput Key(ushort key, bool up) {
+        return new SystemInput { Type=1, Data=new InputUnion { Keyboard=new KeyboardInput { Key=key, Flags=up ? 2u : 0u } } };
+    }
+    private static void GameBar() {
+        var keys = new[] { Key(0x5B,false), Key(0x47,false), Key(0x47,true), Key(0x5B,true) };
+        uint sent = SendInput(4, keys, Marshal.SizeOf(typeof(SystemInput)));
+        if (sent != 4) {
+            // Never leave injected modifiers down if Windows rejects part of the batch.
+            SendInput(2, new[] { Key(0x47,true), Key(0x5B,true) }, Marshal.SizeOf(typeof(SystemInput)));
+            Console.WriteLine("NOTICE:无法发送 Game Bar 快捷键，请检查游戏与接收端的权限是否一致。");
+        }
+    }
     private static DateTime lastMessage = DateTime.UtcNow;
 
     private static void Check(uint result, string operation) {
         if (result != Success) throw new InvalidOperationException(operation + " (0x" + result.ToString("X8") + ")");
     }
     private static void Apply(Report report) {
+        bool xbox = (report.Buttons & 0x0400) != 0;
+        // Consume the app's Xbox action so Windows cannot also toggle via Guide.
+        report.Buttons = (ushort)(report.Buttons & ~0x0400);
+        if (xbox && !xboxHeld) GameBar();
+        xboxHeld = xbox;
         Check(vigem_target_x360_update(client, target, report), "更新 Xbox 360 手柄失败，请检查 ViGEmBus 驱动并重启接收端");
     }
     private static bool Parse(string line, out Report report) {

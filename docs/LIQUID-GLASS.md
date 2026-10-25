@@ -1,6 +1,21 @@
 # Android Dock Liquid Glass 实现
 
-本地 APK 的悬浮 Dock 已采用真实页面采样、色彩处理、模糊和边缘透镜折射。选中滑块、图标和标签独立绘制，保持清晰；通过“设置 → Dock 玻璃效果”选择自动、柔和或简洁外观。
+## 当前版本：AndroidLiquidGlass 源码适配
+
+当前 Dock 采用 [Kyant0/AndroidLiquidGlass](https://github.com/Kyant0/AndroidLiquidGlass) 的实际 AGSL 源码和 `LiquidBottomTabs` 分层方案，上游固定版本 `65ab177e90e5c1d8c62e70cf7755841982da65f6`。这是移植到 Java View / RenderNode 的实现，不是引入 Compose 依赖。源码映射、改动说明和许可证见 `third_party/AndroidLiquidGlass/`。
+
+材质改为深色透明胶囊和蓝色选中前景：底层饱和度 1.5 → 8dp 高斯模糊 → 上游 circle-map 距离场透镜，折射作用高度与位移各 24dp。选中透镜把页面、磨砂底栏及标签合成为独立 GPU 来源，再统一应用上游七次采样色散透镜；按压时高度/位移达到 10dp / 14dp，静止保留 22% 的轻微折射。前景不额外模糊。法线方向高光替代彩色描边和旧的全区域放大，透镜中心清晰、边缘弯折，选中块约 20% 的横向按压扩展配合惯性弹簧。
+
+保留四档折射与三档质量、长按果冻、速度形变、Dock 阻尼偏移、最左端负坐标修复、顶部渐变模糊、320ms 定向切页和页面状态恢复。完整渲染要求 API 33+；API 31–32 使用模糊，旧系统和节能模式使用简洁材质。开源署名和完整 Apache 2.0 许可已打入 APK，可在“设置 → 关于 Orbit Pad → AndroidLiquidGlass 开源许可”阅读。
+
+本版在 Redmi K40 Pro+ / HyperOS 3 / Android 16 上通过 86 项检查（21 项材质与过渡、9 项边界、19 项动作、37 项导航与设置）。四组记录的 APK SHA-256 均与 `OrbitPad-Android-v0.5.0-KyantLiquidGlass.apk` 一致。真机结果保存在 `artifacts/kyant-glass/`。完整效果的本次滚动 FrameMetrics 采样 P50 10.59ms、P95 12.96ms，属于冒烟检查，仍不保证稳定 120Hz。柔和模式保留相同方向高光，使“自动 + 关闭折射”与柔和模式都只呈现模糊材质。polish 套件按上游透镜特性，让透镜边缘扫过图标和文字验证像素弯折，并验证组合来源的录制、实际采用 Kyant 透镜和许可证可读性。下文记录先前实现与迭代参数，涉及旧 shader、薄荷绿或旧增益的描述不代表当前版本。
+
+
+本地 APK 的悬浮 Dock 已采用真实页面采样、色彩处理、模糊和边缘透镜折射。选中滑块采样真实页面，图标和标签经过独立的清晰透镜折射；通过“设置 → Dock 玻璃效果”选择自动、柔和或简洁外观。
+
+## 果冻效果减弱
+
+按压横向膨胀从 40% 降至 20%，纵向从 36% 降至 18%；拖动拉伸与倾斜约减半。降低长按、拖动及松手的弹簧冲量，并提高阻尼，使回弹更快收敛。玻璃折射强度、Dock 阻尼偏移与切页过渡保留。动作和左端边界检查保存于 `artifacts/soft-jelly/`。
 
 ## 与参考文档的对应关系
 
@@ -13,7 +28,7 @@
 | 不逐帧截图为 Bitmap | 使用 GPU display list 录制与重放 |
 | 色彩 → 模糊 → 折射 | ColorMatrix 饱和度 → RenderEffect blur → AGSL 胶囊边缘透镜 |
 | 防止采样边界接缝 | 采样区向外扩展 28dp，并使用 CLAMP 边缘模式 |
-| 清晰的前景 | 玻璃之后绘制选中滑块、边缘高光、图标和文字 |
+| 清晰的前景 | 图标文字使用透明 RenderNode 独立采样，无模糊；仅透镜覆盖范围折射，外围原样绘制 |
 | 选中与交互状态分开 | AppShell 驱动选中项，GlassDock 独立管理弹簧位置与按压强度 |
 | 选中动画 | 按实际测量的标签边界移动弹簧滑块 |
 | 按压反馈 | 长按透镜鼓起与果冻回弹，前景轻微放大；不缩放整个背景采样来源 |
@@ -72,6 +87,20 @@ python scripts/test-glass-android.py --serial DEVICE_SERIAL --suite edge --outpu
 ```
 
 本次结果分别保存在 `artifacts/liquid-edge-fix/edge/`、`artifacts/liquid-edge-fix/motion/` 和 `artifacts/liquid-edge-fix/regression/`。修复前的复现截图和失败记录保存在 `artifacts/liquid-edge-fix/before/`。
+
+## 顶部渐变模糊、前景折射与切页过渡
+
+页面滚动的前 36dp 内逐渐启用顶部遮罩，范围为状态栏高度加 56dp。复用页面 GPU 来源，使用 16dp 高斯模糊，再用纵向 DST_IN 渐变将模糊衰减至透明，并叠加少量页面底色，降低正文与系统状态文字的干扰。回到顶部移除遮罩；简洁模式和低版本采用底色渐变。遮罩绘制于页面之上、Dock 之下，不进入玻璃采样来源。
+
+选中透镜的背景折射增益提高至 5.2、边缘作用带提高至高度的 30%，并增强静止放大与边缘色散。Dock 的图标文字另外录入透明 RenderNode，使用无模糊的 RuntimeShader 做边缘法线位移、轻微放大及跟随惯性倾斜。透镜外绘制原始前景，透镜内绘制折射前景，避免双影；四档强度同时影响背景与前景，关闭档跳过前景折射，柔和与简洁保持原始前景。录制来源始终隔离，不会递归采样。
+
+松开滑块提交不同页面后，页面按标签左右方向在 320ms 内位移和交叉淡入淡出，Dock 保持独立运动。过渡仅保留新旧两页，完成、再次切换或界面分离时清理旧页和动画；旧页在过渡中从无障碍树隐藏。恢复每页滚动位置和输入草稿，顶部遮罩随新旧页面滚动量插值。系统关闭动画时直接切换，重复点击当前标签不重建页面。
+
+新增 polish 真机套件，验证顶部模糊像素、条纹高频对比度下降、下方页面保持清晰、回到顶部消失、文字图标实际折射与透镜外保持原样，以及滑块提交、左右切页、快速中断清理和重复点击。本次在 Redmi K40 Pro+ / HyperOS 3 / Android 16 上通过新增 17 项、边界 9 项、动作 19 项和材质/状态 37 项，共 82 项检查。完整效果滚动采样 P50 10.10ms、P95 16.05ms，仍不保证稳定 120Hz。结果与演示在 `artifacts/liquid-polish/`。
+
+```powershell
+python scripts/test-glass-android.py --serial DEVICE_SERIAL --suite polish --output artifacts/liquid-polish/polish
+```
 
 ## 构建与真机检查
 

@@ -7,7 +7,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { GamepadBridge } from '../server/input.js';
-import { emptyReport } from '../public/controller-core.js';
+import { emptyReport } from '../server/controller-core.js';
 
 const run = promisify(execFile);
 const delay = ms => new Promise(resolve => setTimeout(resolve, ms));

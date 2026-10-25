@@ -8,7 +8,7 @@ import net from 'node:net';
 import { WebSocket } from 'ws';
 import { createReceiver } from '../server/receiver.js';
 import { GamepadBridge } from '../server/input.js';
-import { DEFAULT_MAPPING, PRESETS, BUTTON_MASKS } from '../public/controller-core.js';
+import { DEFAULT_MAPPING, PRESETS, BUTTON_MASKS } from '../server/controller-core.js';
 
 const input = new GamepadBridge({ dryRun: true });
 const history = [];
@@ -66,12 +66,13 @@ try {
   await controls([], 'invalid pair code rejected');
   const connect = async () => { await call('connect', { address, code: host.pairCode }); await wait(async () => (await call('snapshot')).enabled, 'connect'); };
   await connect(); await controls([], 'Rust client authenticates');
-  await touch(0, 'down', 'lt'); await touch(0, 'move', 'lt', 0, 1);
+  const pedals = await call('preset', { name: 'general' }); pedals.linear_triggers = true; await call('configure', { settings: pedals });
+  await touch(0, 'down', 'lt', -1, 0); await touch(0, 'move', 'lt', 0, 0);
   await wait(() => input.report.leftTrigger === 128, 'analog trigger travel reaches receiver');
   phases.push({ name: 'Rust analog trigger travel', report: { ...input.report }, passed: true });
   await call('release'); await controls([], 'analog trigger released');
   await wait(async () => (await call('snapshot')).rtt !== null, 'heartbeat RTT');
-  for (const [button, key] of Object.entries(DEFAULT_MAPPING).slice(0, 14)) {
+  for (const [button, key] of Object.entries(DEFAULT_MAPPING).filter(([key]) => !key.startsWith('move') && !key.startsWith('look'))) {
     await touch(0, 'down', button); await controls([key], `${button} down`);
     await touch(0, 'up', button); await controls([], `${button} released`);
   }

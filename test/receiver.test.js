@@ -4,7 +4,7 @@ import { once } from 'node:events';
 import { WebSocket } from 'ws';
 import { createReceiver } from '../server/receiver.js';
 import { GamepadBridge } from '../server/input.js';
-import { DEFAULT_MAPPING, normalizeState, stateToGamepad, validMapping, emptyReport, BUTTON_MASKS } from '../public/controller-core.js';
+import { DEFAULT_MAPPING, normalizeState, stateToGamepad, validMapping, emptyReport, BUTTON_MASKS } from '../server/controller-core.js';
 
 async function setup(t) {
   const input = new GamepadBridge({ dryRun: true });
@@ -156,7 +156,7 @@ test('reset revokes the paired token and a second phone cannot take over', async
 
 test('wrong pairing codes, cross-site requests, and excess attempts are rejected', async t => {
   const { get, post, base } = await setup(t);
-  assert.equal((await get('/controller')).status, 200);
+  assert.equal((await get('/controller')).status, 404);
   const status = await (await get('/api/status')).json();
   assert.equal(status.pairCode, undefined);
   const external = await fetch(`${base}/api/host/pause`, { method: 'POST', headers: { Origin: 'http://attacker.example', 'Content-Type': 'application/json' }, body: '{"paused":true}' });
@@ -230,4 +230,25 @@ test('native receiver QR endpoint returns a valid PNG image', async t => {
   assert.equal(png.subarray(0, 8).toString('hex'), '89504e470d0a1a0a');
   assert.equal(png.readUInt32BE(16), 360);
   assert.equal(png.readUInt32BE(20), 360);
+});
+
+test('old 22-control maps retain custom assignments and gain Xbox action', async t => {
+  const { input, pair, connect } = await setup(t);
+  const ws = await connect(await pair());t.after(()=>ws.close());
+  const old = {...DEFAULT_MAPPING,a:'y'};delete old.xbox;
+  assert(validMapping(old));
+  const invalid = {...old,extra:'a'};assert(!validMapping(invalid));
+  ws.send(JSON.stringify({type:'mapping',mapping:old}));
+  ws.send(state(['a','xbox']));
+  await waitFor(()=>input.report.buttons===(BUTTON_MASKS.y|BUTTON_MASKS.xbox));
+  ws.send(JSON.stringify({type:'release'}));await waitFor(()=>input.report.buttons===0);
+});
+
+test('browser frontend is removed while native pairing and QR APIs remain available', async t => {
+  const { get } = await setup(t);
+  for(const path of ['/','/controller','/app.js','/styles.css','/controller-core.js','/icon.svg','/manifest.webmanifest']) {
+    const response=await get(path);assert.equal(response.status,404,path);assert.match(response.headers.get('content-type'),/application\/json/);
+  }
+  assert.equal((await get('/api/status')).status,200);
+  assert.equal((await get('/api/host/qr?format=png')).status,200);
 });

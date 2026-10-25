@@ -35,7 +35,10 @@ public final class DeviceInstrumentation extends Instrumentation {
             activity = startActivitySync(intent);
             trace("wait-idle");
             waitForIdleSync();
+            if("connection".equals(arguments.getString("suite"))){persistentConnection();result.putString("orbit_result","PASS");finish(Activity.RESULT_OK,result);return;}
+            if("racing".equals(arguments.getString("suite"))){racingControls();result.putString("orbit_result","PASS");finish(Activity.RESULT_OK,result);return;}
             if("native".equals(arguments.getString("suite"))){nativeGamepad();result.putString("orbit_result","PASS");finish(Activity.RESULT_OK,result);return;}
+            if("polish".equals(arguments.getString("suite"))){glassPolish();result.putString("orbit_result","PASS");finish(Activity.RESULT_OK,result);return;}
             if("edge".equals(arguments.getString("suite"))){dockEdge();result.putString("orbit_result","PASS");finish(Activity.RESULT_OK,result);return;}
             if("motion".equals(arguments.getString("suite"))){dockMotion();result.putString("orbit_result","PASS");finish(Activity.RESULT_OK,result);return;}
             if("glass".equals(arguments.getString("suite"))){glassDock();result.putString("orbit_result","PASS");finish(Activity.RESULT_OK,result);return;}
@@ -159,6 +162,35 @@ public final class DeviceInstrumentation extends Instrumentation {
         while(!open.get()&&SystemClock.uptimeMillis()<until){runOnMainSync(()->{try{open.set(field.get(scanner)!=null);}catch(Exception e){throw new RuntimeException(e);}});SystemClock.sleep(150);}
         if(!open.get())throw new AssertionError("Camera preview did not open");SystemClock.sleep(500);phase("camera-preview-open","","false");
         runOnMainSync(()->scanner.finish());SystemClock.sleep(600);if(field.get(scanner)!=null)throw new AssertionError("Camera was not released");phase("camera-release-on-exit","","false");removeMonitor(monitor);
+    }
+    private void persistentConnection() throws Exception {
+        org.json.JSONObject original=core("{\"op\":\"snapshot\"}").getJSONObject("settings");
+        org.json.JSONObject config=new org.json.JSONObject(original.toString());config.put("gyro_enabled",false);
+        core(new org.json.JSONObject().put("op","configure").put("settings",config).toString());
+        try{
+        waitContains("未连接",5000);phase("connection-home-disconnected","","false");
+        connect(arguments.getString("address"),arguments.getString("code"));waitNode("A",15000);
+        phase("connection-paired","","true");
+        Rect a=bounds(waitNode("A",5000));float[][] point={{a.exactCenterX(),a.exactCenterY()}};
+        downTime=SystemClock.uptimeMillis();touch(MotionEvent.ACTION_DOWN,new int[]{0},point);
+        phase("connection-held-before-home","a","true");
+        key(KeyEvent.KEYCODE_BACK);waitContains("你的手柄",5000);waitContains("已连接",5000);
+        touch(MotionEvent.ACTION_UP,new int[]{0},point);SystemClock.sleep(1600);
+        phase("connection-home-keeps-session-neutral","","true");
+        Rect badge=bounds(waitContains("已连接",5000)),title=bounds(waitContains("你的手柄",5000));
+        if(badge.centerX()<=title.centerX()||badge.centerY()>=title.centerY())throw new AssertionError("Connection status must be at the top right");
+        tapNode("进入手柄");waitNode("A",5000);hold("A","a","connection-reentered");
+        tapNode("手柄设置");tapNode("返回主页");waitContains("已连接",5000);
+        phase("connection-settings-home-keeps-session","","true");
+        tapNode("自定义按键布局");waitNode("A",5000);key(KeyEvent.KEYCODE_BACK);waitContains("已连接",5000);
+        phase("connection-editor-home-keeps-session","","true");
+        tapNode("导航设置");tapNode("导航主页");waitContains("已连接",5000);
+        phase("connection-tabs-keep-session","","true");
+        tapNode("进入手柄");waitNode("A",5000);returnToNative();
+        phase("connection-explicit-disconnect","","false");
+        tapNode("导航主页");waitContains("未连接",5000);waitNode("扫码连接电脑",5000);
+        phase("connection-home-status-updated","","false");
+        }finally{core(new org.json.JSONObject().put("op","configure").put("settings",original).toString());}
     }
     private void nativeShell() throws Exception {
         String[] keys={"rust_settings","template_name","templates_v1"};String[] previous=new String[keys.length];
@@ -349,16 +381,16 @@ public final class DeviceInstrumentation extends Instrumentation {
             downTime=SystemClock.uptimeMillis();touch(MotionEvent.ACTION_DOWN,new int[]{0},new float[][]{homePoint});
             SystemClock.sleep(android.view.ViewConfiguration.getLongPressTimeout()+450);
             android.graphics.RectF held=lensBounds(dock);motionShot("motion-long-press").recycle();
-            glassCheck("long-press-raises-lens",held.height()>rest.height()*1.25f&&held.top<0);
+            glassCheck("long-press-raises-lens",held.height()>rest.height()*1.10f&&held.height()<rest.height()*1.24f&&held.width()<rest.width()*1.28f&&held.top<0);
             glassCheck("hold-does-not-navigate",waitNode("导航主页",5000).isSelected());
             touch(MotionEvent.ACTION_UP,new int[]{0},new float[][]{homePoint});SystemClock.sleep(120);motionShot("motion-release-wobble").recycle();SystemClock.sleep(1100);
             glassCheck("release-restores-lens",Math.abs(lensBounds(dock).height()-rest.height())<density*1.2f);
             downTime=SystemClock.uptimeMillis();touch(MotionEvent.ACTION_DOWN,new int[]{0},new float[][]{homePoint});SystemClock.sleep(120);
             dragPath(homePoint,themePoint,14,18);
             android.graphics.RectF stretched=lensBounds(dock);motionShot("motion-drag-right").recycle();
-            glassCheck("drag-stretches-lens",stretched.width()>rest.width()*1.15f);
+            glassCheck("drag-stretches-lens",stretched.width()>rest.width()*1.12f&&stretched.width()<rest.width()*1.42f);
             trace("motion-widths:hold="+held.width()+",drag="+stretched.width());
-            glassCheck("inertia-adds-width-beyond-hold",stretched.width()>held.width()*1.02f);
+            glassCheck("inertia-adds-width-beyond-hold",stretched.width()>held.width()*1.005f&&stretched.width()<held.width()*1.12f);
             glassCheck("dock-follows-right-with-damping",dock.getTranslationX()>density*.8f&&dock.getTranslationX()<density*12);
             glassCheck("drag-preview-does-not-navigate",waitNode("导航主页",5000).isSelected());
             touch(MotionEvent.ACTION_UP,new int[]{0},new float[][]{themePoint});SystemClock.sleep(1200);
@@ -435,6 +467,82 @@ public final class DeviceInstrumentation extends Instrumentation {
             android.content.SharedPreferences.Editor restore=activity.getPreferences(0).edit();if(quality==null)restore.remove("glass_quality");else restore.putString("glass_quality",quality);restore.commit();
         }
     }
+    private void glassPolish() throws Exception {
+        String quality=activity.getPreferences(0).getString("glass_quality",null);
+        boolean hadStrength=activity.getPreferences(0).contains("glass_refraction");int strength=activity.getPreferences(0).getInt("glass_refraction",2);
+        Object shell=member(activity,"shell");android.view.View root=(android.view.View)member(shell,"view"),dock=(android.view.View)member(shell,"glassDock");
+        android.widget.FrameLayout page=(android.widget.FrameLayout)member(root,"page");
+        java.lang.reflect.Method show=shell.getClass().getDeclaredMethod("show",int.class);show.setAccessible(true);
+        java.lang.reflect.Method top=root.getClass().getDeclaredMethod("setTopFade",int.class,float.class);top.setAccessible(true);
+        java.lang.reflect.Field contentFailed=dock.getClass().getDeclaredField("contentFailed");contentFailed.setAccessible(true);
+        float density=activity.getResources().getDisplayMetrics().density;
+        android.view.View stripes=new android.view.View(activity){final android.graphics.Paint p=new android.graphics.Paint();
+            @Override protected void onDraw(android.graphics.Canvas c){for(int x=0;x<getWidth();x+=(int)(density*4)){p.setColor((x/(int)(density*4)%2)==0?0xfff4d077:0xff286aa8);c.drawRect(x,0,x+density*4,getHeight(),p);}}};
+        try{
+            runOnMainSync(()->{activity.getPreferences(0).edit().putString("glass_quality","auto").putInt("glass_refraction",2).commit();activity.getWindow().addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);root.invalidate();dock.invalidate();});
+            tapNode("导航主页");SystemClock.sleep(800);
+            android.widget.ScrollView scroll=(android.widget.ScrollView)member(shell,"currentScroll");
+            runOnMainSync(()->{scroll.scrollTo(0,0);page.addView(stripes,new android.widget.FrameLayout.LayoutParams(-1,-1));});
+            android.graphics.Bitmap clear=glassShot("polish-top-clear");
+            glassCheck("top-veil-hidden-at-page-start",((Float)member(root,"topFade"))==0);
+            runOnMainSync(()->scroll.scrollTo(0,(int)(density*88)));SystemClock.sleep(400);
+            android.graphics.Bitmap blurred=glassShot("polish-top-blur");int height=(Integer)member(root,"topHeight"),inset=(Integer)member(shell,"safeTop");
+            glassCheck("scroll-enables-top-veil",((Float)member(root,"topFade"))>.99f);
+            Rect upper=new Rect((int)(density*24),inset,clear.getWidth()-(int)(density*24),height-(int)(density*22));
+            Rect lower=new Rect(upper.left,height+(int)(density*20),upper.right,height+(int)(density*80));
+            glassCheck("top-blur-changes-scrolled-pixels",pixelDifference(clear,blurred,upper)>50000);
+            glassCheck("top-veil-leaves-lower-content-clear",pixelDifference(clear,blurred,lower)<1000);
+            long high=0,low=0;int samples=0;
+            for(int y=inset+2;y<height-(int)(density*22);y+=3)for(int x=upper.left+4;x<upper.right-4;x+=3){
+                high+=Math.abs(android.graphics.Color.red(clear.getPixel(x,y))-android.graphics.Color.red(clear.getPixel(x+2,y)));
+                low+=Math.abs(android.graphics.Color.red(blurred.getPixel(x,y))-android.graphics.Color.red(blurred.getPixel(x+2,y)));samples++;
+            }
+            glassCheck("gaussian-blur-reduces-stripe-contrast",high>samples*10&&low<high*.6);clear.recycle();blurred.recycle();
+            runOnMainSync(()->scroll.scrollTo(0,0));SystemClock.sleep(300);glassCheck("return-to-top-removes-veil",((Float)member(root,"topFade"))==0);
+            runOnMainSync(()->page.removeView(stripes));
+            trace("record-liquid-motion");SystemClock.sleep(400);
+            Rect h=bounds(waitNode("导航主页",5000)),settings=bounds(waitNode("导航设置",5000));
+            float[] home={h.exactCenterX(),h.exactCenterY()},end={settings.exactCenterX(),settings.exactCenterY()};
+            downTime=SystemClock.uptimeMillis();touch(MotionEvent.ACTION_DOWN,new int[]{0},new float[][]{home});SystemClock.sleep(1000);
+            // The upstream lens preserves its center. Move its rim over the home icon/label.
+            float[] probePoint={home[0]+h.width()*.60f,home[1]};dragPath(home,probePoint,12,16);SystemClock.sleep(650);
+            android.graphics.Bitmap refracted=motionShot("polish-content-refracted");
+            glassCheck("icon-text-lens-active",member(dock,"contentLens")!=null&&!((Boolean)member(dock,"contentFailed")));
+            Object combinedLens=member(dock,"contentLens");
+            glassCheck("kyant-original-lens-is-used",member(combinedLens,"lens").getClass().getName().endsWith("KyantGlass$Lens"));
+            glassCheck("combined-backdrop-is-recorded",((android.graphics.RenderNode)member(combinedLens,"combined")).hasDisplayList());
+            runOnMainSync(()->{try{contentFailed.setBoolean(dock,true);}catch(Exception error){throw new RuntimeException(error);}dock.invalidate();});SystemClock.sleep(120);
+            android.graphics.Bitmap plain=motionShot("polish-content-plain");
+            glassCheck("refraction-warps-icon-and-text-pixels",pixelDifference(refracted,plain,new Rect(h.left+10,h.top+8,h.right-10,h.bottom-8))>8000);
+            Rect outside=new Rect(settings.left+10,settings.top+8,settings.right-10,settings.bottom-8);
+            glassCheck("uncovered-icons-stay-unwarped",pixelDifference(refracted,plain,outside)<1500);refracted.recycle();plain.recycle();
+            runOnMainSync(()->{try{contentFailed.setBoolean(dock,false);}catch(Exception error){throw new RuntimeException(error);}dock.invalidate();});
+            dragPath(probePoint,end,20,16);touch(MotionEvent.ACTION_UP,new int[]{0},new float[][]{end});SystemClock.sleep(600);
+            glassCheck("slider-release-navigates-settings",waitNode("导航设置",5000).isSelected());
+            runOnMainSync(()->{try{show.invoke(shell,0);}catch(Exception error){throw new RuntimeException(error);}});
+            android.widget.ScrollView incoming=(android.widget.ScrollView)member(shell,"currentScroll");
+            glassCheck("leftward-page-transition-starts",member(shell,"pageTransition")!=null&&incoming.getTranslationX()<0&&page.getChildCount()==2);
+            SystemClock.sleep(65);motionShot("polish-transition-left").recycle();SystemClock.sleep(500);
+            glassCheck("transition-cleans-outgoing-page",page.getChildCount()==1&&member(shell,"pageTransition")==null&&incoming.getAlpha()==1&&incoming.getTranslationX()==0);
+            runOnMainSync(()->{try{show.invoke(shell,3);}catch(Exception error){throw new RuntimeException(error);}});
+            incoming=(android.widget.ScrollView)member(shell,"currentScroll");
+            glassCheck("rightward-page-transition-starts",member(shell,"pageTransition")!=null&&incoming.getTranslationX()>0);SystemClock.sleep(65);motionShot("polish-transition-right").recycle();SystemClock.sleep(500);
+            runOnMainSync(()->{try{show.invoke(shell,0);show.invoke(shell,1);show.invoke(shell,3);}catch(Exception error){throw new RuntimeException(error);}});
+            glassCheck("rapid-switch-retains-only-two-pages",page.getChildCount()<=2);SystemClock.sleep(550);
+            glassCheck("rapid-switch-finishes-on-last-page",waitNode("导航设置",5000).isSelected()&&page.getChildCount()==1&&member(shell,"outgoingScroll")==null);
+            android.view.View same=(android.view.View)member(shell,"currentScroll");tapNode("导航设置");
+            glassCheck("same-tab-does-not-restart-transition",same==member(shell,"currentScroll")&&member(shell,"pageTransition")==null);
+            glassCheck("polish-renderers-stay-active",!((Boolean)member(root,"failed"))&&!((Boolean)member(dock,"contentFailed")));
+            tapNode("关于 Orbit Pad");tapNode("AndroidLiquidGlass 开源许可");waitContains("Copyright 2025 Kyant",5000);
+            glassCheck("upstream-license-readable-in-apk",find(automation.getRootInActiveWindow(),"Apache License",true)!=null);
+            key(KeyEvent.KEYCODE_BACK);glassCheck("license-dismiss-keeps-settings",waitNode("导航设置",5000).isSelected());
+            tapNode("导航主页");SystemClock.sleep(500);motionShot("polish-home").recycle();
+        }finally{
+            runOnMainSync(()->{page.removeView(stripes);try{contentFailed.setBoolean(dock,false);}catch(Exception ignored){}dock.invalidate();});
+            android.content.SharedPreferences.Editor restore=activity.getPreferences(0).edit();if(quality==null)restore.remove("glass_quality");else restore.putString("glass_quality",quality);
+            if(hadStrength)restore.putInt("glass_refraction",strength);else restore.remove("glass_refraction");restore.commit();
+        }
+    }
     private void glassPerformance(android.view.View root,android.view.View dock,android.widget.ScrollView scroll) throws Exception {
         android.os.HandlerThread worker=new android.os.HandlerThread("glass-frame-metrics");worker.start();
         java.util.List<Long> times=java.util.Collections.synchronizedList(new java.util.ArrayList<Long>());
@@ -483,20 +591,88 @@ public final class DeviceInstrumentation extends Instrumentation {
         downTime=SystemClock.uptimeMillis();touch(MotionEvent.ACTION_DOWN,new int[]{0},new float[][]{button});phase(prefix+"-held-before-home","a","true");key(KeyEvent.KEYCODE_HOME);SystemClock.sleep(800);phase(prefix+"-background-release","","false");
         trace("resume-activity");SystemClock.sleep(prefix.equals("bluetooth")?5000:1500);waitNode("A",15000);phase(prefix+"-foreground-reconnected","","true");returnToNative();phase(prefix+"-disconnected","","false");
     }
+    private org.json.JSONObject core(String command) throws Exception {
+        return new org.json.JSONObject(coreRaw(command));
+    }
+    private String coreRaw(String command) throws Exception {
+        Class<?> bridge=activity.getClassLoader().loadClass("app.orbitpad.controller.NativeBridge");
+        java.lang.reflect.Method method=bridge.getDeclaredMethod("call",String.class);method.setAccessible(true);
+        return (String)method.invoke(null,command);
+    }
+    private void invokeActivity(String method) throws Exception {
+        java.lang.reflect.Method target=activity.getClass().getDeclaredMethod(method);target.setAccessible(true);
+        runOnMainSync(()->{try{target.invoke(activity);}catch(Exception e){throw new RuntimeException(e);}});waitForIdleSync();
+    }
+    private void racingControls() throws Exception {
+        String saved=activity.getPreferences(0).getString("rust_settings",null);
+        String savedTemplate=activity.getPreferences(0).getString("template_name","通用游戏");
+        if(savedTemplate.equals("racing-test"))savedTemplate="通用游戏";
+        final String templateName=savedTemplate;
+        org.json.JSONObject original=core("{\"op\":\"snapshot\"}").getJSONObject("settings");
+        try{
+            invokeActivity("openEditor");SystemClock.sleep(800);
+            // Measure from a known size even when the saved user layout is already enlarged.
+            tapNode("A");progress("控件大小",0);key(KeyEvent.KEYCODE_BACK);
+            Rect before=bounds(waitNode("A",5000));tapNode("A");progress("控件大小",80);key(KeyEvent.KEYCODE_BACK);
+            Rect after=bounds(waitNode("A",5000));
+            if(after.width()<before.width()*1.35f)throw new AssertionError("Live size preview did not resize A");
+            tapNode("LB");progress("控件宽度",150);progress("控件高度",200);key(KeyEvent.KEYCODE_BACK);
+            org.json.JSONObject layout=core("{\"op\":\"snapshot\"}").getJSONObject("settings").getJSONObject("layout");
+            if(Math.abs(layout.getJSONObject("lb").getDouble("width")-2.1)>.01||Math.abs(layout.getJSONObject("lb").getDouble("height")-2.6)>.01)throw new AssertionError("Independent shoulder dimensions not saved");
+            // Restore defaults, then place a vertical brake in free canvas space.
+            key(KeyEvent.KEYCODE_BACK);
+            org.json.JSONObject config=new org.json.JSONObject(original.toString());config.put("linear_triggers",true);config.put("gyro_enabled",false);
+            org.json.JSONObject positions=new org.json.JSONObject();positions.put("lt",new org.json.JSONObject("{\"x\":500,\"y\":330,\"width\":0.6,\"height\":4}"));config.put("layout",positions);
+            java.lang.reflect.Method apply=activity.getClass().getDeclaredMethod("applyTemplate",org.json.JSONObject.class,String.class);apply.setAccessible(true);
+            runOnMainSync(()->{try{apply.invoke(activity,config,templateName);}catch(Exception e){throw new RuntimeException(e);}});
+            connect(arguments.getString("address"),arguments.getString("code"));waitNode("A",15000);SystemClock.sleep(700);
+            waitNode("Xbox · 呼出 Game Bar",5000);phase("racing-xbox-visible","","true");
+            Rect lt=bounds(waitNode("LT 模拟扳机",5000)),rt=bounds(waitNode("RT 模拟扳机",5000));
+            if(lt.height()<=lt.width())throw new AssertionError("LT did not become a vertical pedal");
+            float[] brake={lt.exactCenterX(),lt.top+lt.height()*.25f},gas={rt.left+rt.width()*.75f,rt.exactCenterY()};
+            downTime=SystemClock.uptimeMillis();touch(MotionEvent.ACTION_DOWN,new int[]{0},new float[][]{brake});phase("racing-brake-quarter","lt","true");
+            touch(MotionEvent.ACTION_POINTER_DOWN|(1<<MotionEvent.ACTION_POINTER_INDEX_SHIFT),new int[]{0,1},new float[][]{brake,gas});phase("racing-two-pedals","lt,rt","true");
+            touch(MotionEvent.ACTION_POINTER_UP|(0<<MotionEvent.ACTION_POINTER_INDEX_SHIFT),new int[]{0,1},new float[][]{brake,gas});phase("racing-brake-released","rt","true");
+            touch(MotionEvent.ACTION_CANCEL,new int[]{1},new float[][]{gas});phase("racing-cancel-neutral","","true");
+            tapNode("手柄设置");tapNode("手感调节");waitNode("LT / RT 线性油门 / 刹车",5000);phase("racing-feel-settings","","true");key(KeyEvent.KEYCODE_BACK);
+            Object gyro=member(activity,"gyro");
+            Class<?> gyroClass=gyro.getClass();java.lang.reflect.Method available=gyroClass.getDeclaredMethod("available");available.setAccessible(true);
+            if(!(Boolean)available.invoke(gyro))throw new AssertionError("Test device has no gravity sensor");
+            java.lang.reflect.Method angle=gyroClass.getDeclaredMethod("gravityAngle",float.class,float.class);angle.setAccessible(true);
+            double tilt=Math.toRadians(23.5);float x=(float)(-9.81*Math.sin(tilt)),z=(float)(9.81*Math.cos(tilt));
+            if(Math.abs((Float)angle.invoke(null,x,z)-23.5f)>.01)throw new AssertionError("Gravity X/Z steering angle incorrect");
+            if(Math.abs((Float)angle.invoke(null,-x,z)+23.5f)>.01)throw new AssertionError("Gravity steering sign incorrect");
+            if((Float)angle.invoke(null,0f,9.81f)!=0f||(Float)angle.invoke(null,0f,0f)!=0f)throw new AssertionError("Gravity neutral incorrect");
+            org.json.JSONObject settings=(org.json.JSONObject)member(activity,"settings");settings.put("gyro_enabled",true);invokeActivity("saveSettings");SystemClock.sleep(300);
+            if(!(Boolean)member(gyro,"running"))throw new AssertionError("Gyro listener not registered while controlling");
+            org.json.JSONArray controls=new org.json.JSONArray(coreRaw("{\"op\":\"layout\"}"));
+            for(int i=0;i<controls.length();i++)if(controls.getJSONObject(i).getString("id").equals("calibrate"))throw new AssertionError("Manual recenter control still present");
+            tapNode("手柄设置");SystemClock.sleep(100);
+            if((Boolean)member(gyro,"running"))throw new AssertionError("Gyro listener remained registered in settings");
+            phase("racing-gyro-settings-neutral","","true");key(KeyEvent.KEYCODE_BACK);
+            returnToNative();SystemClock.sleep(200);
+            if((Boolean)member(gyro,"running"))throw new AssertionError("Gyro listener remained registered after disconnect");
+            phase("racing-disconnected","","false");
+        }finally{
+            core(new org.json.JSONObject().put("op","configure").put("settings",original).toString());
+            android.content.SharedPreferences.Editor restore=activity.getPreferences(0).edit();if(saved==null)restore.remove("rust_settings");else restore.putString("rust_settings",saved);restore.putString("template_name",templateName);restore.commit();
+        }
+    }
     private void nativeGamepad() throws Exception {
         connect(arguments.getString("address"),arguments.getString("code"));
         waitNode("A",15000);SystemClock.sleep(800);phase("native-connected","","true");
         hold("A","a","native-a");
+        tapNode("手柄设置");tapNode("手感调节");if(!waitNode("LT / RT 线性油门 / 刹车",5000).isChecked())tapNode("LT / RT 线性油门 / 刹车");key(KeyEvent.KEYCODE_BACK);
         Rect lt=bounds(waitNode("LT 模拟扳机",5000));
-        float[] lc={lt.exactCenterX(),lt.exactCenterY()};
+        float[] lc={lt.right-1,lt.exactCenterY()};
         downTime=SystemClock.uptimeMillis();touch(MotionEvent.ACTION_DOWN,new int[]{0},new float[][]{lc});
         phase("native-lt-full","lt","true");
-        touch(MotionEvent.ACTION_MOVE,new int[]{0},new float[][]{{lc[0],lc[1]+lt.height()*.5f}});
+        touch(MotionEvent.ACTION_MOVE,new int[]{0},new float[][]{{lt.exactCenterX(),lc[1]}});
         phase("native-lt-half","lt","true");
         touch(MotionEvent.ACTION_UP,new int[]{0},new float[][]{lc});phase("native-lt-released","","true");
         Rect rt=bounds(waitNode("RT 模拟扳机",5000));float[] rc={rt.exactCenterX(),rt.exactCenterY()};
         downTime=SystemClock.uptimeMillis();touch(MotionEvent.ACTION_DOWN,new int[]{0},new float[][]{rc});
-        touch(MotionEvent.ACTION_MOVE,new int[]{0},new float[][]{{rc[0],rc[1]+rt.height()*.75f}});
+        touch(MotionEvent.ACTION_MOVE,new int[]{0},new float[][]{{rt.left+rt.width()*.25f,rc[1]}});
         phase("native-rt-quarter","rt","true");
         touch(MotionEvent.ACTION_CANCEL,new int[]{0},new float[][]{rc});phase("native-rt-cancel","","true");
         Rect left=bounds(waitNode("左摇杆，模拟量输出",5000)),right=bounds(waitNode("右摇杆，模拟量输出",5000)),a=bounds(waitNode("A",5000));
@@ -635,7 +811,7 @@ public final class DeviceInstrumentation extends Instrumentation {
             boolean covered=node!=null&&dock!=null&&!text.startsWith("导航")&&bounds(node).bottom>bounds(dock).top;
             if (node != null && !bounds(node).isEmpty()&&!covered) return node;
             AccessibilityNodeInfo scroll=findScrollable(automation.getRootInActiveWindow());
-            if(scroll!=null)scroll.performAction(node!=null&&bounds(node).bottom<=bounds(node).top?AccessibilityNodeInfo.ACTION_SCROLL_BACKWARD:AccessibilityNodeInfo.ACTION_SCROLL_FORWARD);
+            if(scroll!=null)scroll.performAction(node!=null&&bounds(node).bottom<=bounds(scroll).top?AccessibilityNodeInfo.ACTION_SCROLL_BACKWARD:AccessibilityNodeInfo.ACTION_SCROLL_FORWARD);
             SystemClock.sleep(150);
         }
         throw new AssertionError("UI node not found: " + text);
@@ -643,7 +819,7 @@ public final class DeviceInstrumentation extends Instrumentation {
     private AccessibilityNodeInfo findScrollable(AccessibilityNodeInfo node){if(node==null)return null;if(node.isScrollable())return node;for(int i=0;i<node.getChildCount();i++){AccessibilityNodeInfo result=findScrollable(node.getChild(i));if(result!=null)return result;}return null;}
     private void returnToNative() {
         key(KeyEvent.KEYCODE_BACK);
-        waitNode("断开", 5000).performAction(AccessibilityNodeInfo.ACTION_CLICK);
+        waitContains("你的手柄",5000);tapNode("导航连接");tapNode("断开当前连接");
         waitNode("手动配对",5000);tapNode("手动配对");
         waitContains("连接并开始", 5000); SystemClock.sleep(350);
     }

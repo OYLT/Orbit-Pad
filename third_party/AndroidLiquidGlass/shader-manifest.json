@@ -1,0 +1,11 @@
+{
+  "repository": "https://github.com/Kyant0/AndroidLiquidGlass",
+  "revision": "65ab177e90e5c1d8c62e70cf7755841982da65f6",
+  "upstreamSource": "backdrop/src/commonMain/kotlin/com/kyant/backdrop/internal/Shaders.kt",
+  "license": "Apache-2.0",
+  "sha256": {
+    "highlight.agsl": "1062157dcf3a0238bf7ff439ab43857bb30b5f6f250790c7e81d566532906ee1",
+    "refraction.agsl": "fa0bf7567ea859094d5006fe436c91d5a61d8677f95a090d2ff4d3e7779a8c72",
+    "refraction_dispersion.agsl": "280185c39681c5545efd9f0ba02bb999ca133deeca9b00582b1c57110e4eb0c6"
+  }
+}

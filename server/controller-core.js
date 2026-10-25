@@ -1,6 +1,7 @@
+// Native receiver input mapping and XInput report conversion.
 export const CONTROL_LABELS = Object.freeze({
   a: 'A', b: 'B', x: 'X', y: 'Y', lb: 'LB · 左肩键', rb: 'RB · 右肩键',
-  lt: 'LT · 左扳机', rt: 'RT · 右扳机', select: 'View', start: 'Menu',
+  lt: 'LT · 左扳机', rt: 'RT · 右扳机', select: 'View', start: 'Menu', xbox: 'Xbox · Game Bar',
   up: '方向键 ↑', down: '方向键 ↓', left: '方向键 ←', right: '方向键 →',
   moveUp: '左摇杆 ↑', moveDown: '左摇杆 ↓', moveLeft: '左摇杆 ←', moveRight: '左摇杆 →',
   lookUp: '右摇杆 ↑', lookDown: '右摇杆 ↓', lookLeft: '右摇杆 ←', lookRight: '右摇杆 →',
@@ -14,12 +15,13 @@ export const PRESETS = Object.freeze({
 });
 export const BUTTON_MASKS = Object.freeze({ up: 0x0001, down: 0x0002, left: 0x0004, right: 0x0008,
   start: 0x0010, select: 0x0020, l3: 0x0040, r3: 0x0080, lb: 0x0100, rb: 0x0200,
-  a: 0x1000, b: 0x2000, x: 0x4000, y: 0x8000 });
+  xbox: 0x0400, a: 0x1000, b: 0x2000, x: 0x4000, y: 0x8000 });
 const legacyKeys = new Set([... 'ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789', 'Space', 'Enter', 'Escape', 'Tab',
   'Shift', 'Control', 'Alt', 'ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight']);
 const mappingShape = mapping => mapping && typeof mapping === 'object' && !Array.isArray(mapping)
-  && Object.keys(mapping).length === Object.keys(DEFAULT_MAPPING).length
-  && Object.keys(DEFAULT_MAPPING).every(k => Object.hasOwn(mapping, k));
+  && [Object.keys(DEFAULT_MAPPING).length, Object.keys(DEFAULT_MAPPING).length - 1].includes(Object.keys(mapping).length)
+  && Object.keys(mapping).every(k => Object.hasOwn(DEFAULT_MAPPING, k))
+  && Object.keys(DEFAULT_MAPPING).every(k => k === 'xbox' || Object.hasOwn(mapping, k));
 export const validMapping = mapping => !!mappingShape(mapping)
   && Object.values(mapping).every(k => typeof k === 'string' && Object.hasOwn(OUTPUT_LABELS, k));
 export const legacyMapping = mapping => !!mappingShape(mapping) && Object.values(mapping).every(k => legacyKeys.has(k));
@@ -27,7 +29,7 @@ export const emptyReport = () => ({ buttons: 0, leftTrigger: 0, rightTrigger: 0,
 
 export function normalizeState(value) {
   if (!value || !Array.isArray(value.buttons) || !Array.isArray(value.axes)
-      || value.buttons.length > 16 || value.axes.length !== 4) throw new Error('无效的手柄状态');
+      || value.buttons.length > 17 || value.axes.length !== 4) throw new Error('无效的手柄状态');
   const buttons = [...new Set(value.buttons)];
   const names = [...Object.keys(BUTTON_MASKS), 'lt', 'rt'];
   if (!buttons.every(b => names.includes(b))) throw new Error('无效按键');
@@ -78,3 +80,4 @@ export function describeReport(report) {
   if (report.rightX || report.rightY) parts.push(`R (${report.rightX}, ${report.rightY})`);
   return parts;
 }
+
