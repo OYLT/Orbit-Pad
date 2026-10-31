@@ -43,7 +43,7 @@ public final class MainActivity extends Activity {
     private boolean controllerVisible, checking, resumed, editing;
     private AppShell shell;
     private BluetoothProxy bluetooth;
-    private String selectedControl;
+    private LayoutEditor layoutEditor;
     private AlertDialog settingsDialog;
     private GyroSteering gyro;
     private void syncGyro(){
@@ -63,7 +63,7 @@ public final class MainActivity extends Activity {
         if (shell!=null && !controllerVisible && !editing) shell.update(snapshot);
         if (status!=null && controllerVisible) {
             String latency=snapshot.isNull("rtt") ? "" : " · "+snapshot.optLong("rtt")+" ms";
-            status.setText("Orbit Pad  ·  "+snapshot.optString("message")+latency);
+            status.setText(gyro!=null&&gyro.calibrating()?"陀螺仪校准中 · 保持手机稳定…":"Orbit Pad  ·  "+snapshot.optString("message")+latency);
         }
         syncGyro();
         if (pad!=null) pad.refresh();
@@ -114,7 +114,7 @@ public final class MainActivity extends Activity {
     }
     private void showShell(int page,String error) {
         if(gyro!=null)gyro.stop();
-        controllerVisible=false;editing=false;pad=null;status=null;
+        controllerVisible=false;editing=false;layoutEditor=null;pad=null;status=null;
         if(settingsDialog!=null)settingsDialog.dismiss();
         snapshot=call("release");JSONObject c=command("settings");put(c,"open",true);snapshot=call(c);
         getWindow().clearFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);
@@ -166,7 +166,7 @@ public final class MainActivity extends Activity {
     void applyTemplate(JSONObject config,String name){
         if(config==null)return;JSONObject c=command("configure");put(c,"settings",config);JSONObject result=call(c);
         if(result.has("error")){Toast.makeText(this,result.optString("error"),Toast.LENGTH_LONG).show();return;}
-        settings=result.optJSONObject("settings");snapshot=result;getPreferences(0).edit().putString("template_name",name).putString("rust_settings",settings.toString()).apply();
+        settings=result.optJSONObject("settings");snapshot=result;getPreferences(0).edit().putString("template_name",name).putString("rust_settings",settings.toString()).apply();if(pad!=null)pad.requestLayout();
     }
     /** Keep the system gesture handle visible over app content, including HyperOS 3. */
     private void edgeToEdge(){
@@ -188,35 +188,44 @@ public final class MainActivity extends Activity {
         getWindow().getDecorView().setSystemUiVisibility(View.SYSTEM_UI_FLAG_IMMERSIVE_STICKY|View.SYSTEM_UI_FLAG_FULLSCREEN|View.SYSTEM_UI_FLAG_HIDE_NAVIGATION|View.SYSTEM_UI_FLAG_LAYOUT_FULLSCREEN|View.SYSTEM_UI_FLAG_LAYOUT_HIDE_NAVIGATION|View.SYSTEM_UI_FLAG_LAYOUT_STABLE);
     }
     void openController() {
-        editing=false;controllerVisible=true;shell=null;JSONObject c=command("settings");put(c,"open",false);snapshot=call(c);setRequestedOrientation(ActivityInfo.SCREEN_ORIENTATION_SENSOR_LANDSCAPE);
+        if(gyro!=null)gyro.stop();
+        editing=false;layoutEditor=null;controllerVisible=true;shell=null;JSONObject c=command("settings");put(c,"open",false);snapshot=call(c);setRequestedOrientation(ActivityInfo.SCREEN_ORIENTATION_SENSOR_LANDSCAPE);
         getWindow().addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);immersive();pad=new PadView();setContentView(pad);
     }
-    private void saveSettings() {
+    void saveSettings() {
         JSONObject c=command("configure");put(c,"settings",settings);JSONObject result=call(c);
         if(result.has("error")){Toast.makeText(this,result.optString("error"),Toast.LENGTH_LONG).show();return;}
         getPreferences(0).edit().putString("rust_settings",settings.toString()).apply();snapshot=result;if(pad!=null)pad.requestLayout();
     }
     void openEditor(){
-        controllerVisible=false;editing=true;shell=null;selectedControl=null;
+        if(gyro!=null)gyro.stop();controllerVisible=false;editing=true;shell=null;
         JSONObject c=command("settings");put(c,"open",true);snapshot=call(c);
         setRequestedOrientation(ActivityInfo.SCREEN_ORIENTATION_SENSOR_LANDSCAPE);immersive();
-        FrameLayout root=new FrameLayout(this);root.setBackgroundColor(BG);pad=new PadView();
-        FrameLayout.LayoutParams area=new FrameLayout.LayoutParams(-1,-1);area.bottomMargin=dp(62);root.addView(pad,area);
-        LinearLayout actions=new LinearLayout(this);actions.setGravity(Gravity.CENTER);actions.setPadding(dp(10),dp(4),dp(10),dp(6));actions.setBackground(rounded(SURFACE,0,24));
-        String[] labels={"显示控件","重置布局","保存并返回"};
-        for(int i=0;i<labels.length;i++){final int index=i;Button b=button(labels[i]);actions.addView(b,new LinearLayout.LayoutParams(0,-1,1));b.setOnClickListener(v->{
-            if(index==0)visibleControls();
-            else if(index==1)new AlertDialog.Builder(this).setTitle("重置布局？").setMessage("恢复默认位置、大小和显隐，保留按键映射。")
-                .setPositiveButton("重置",(d,w)->{put(settings,"layout",new JSONObject());saveSettings();}).setNegativeButton("取消",null).show();
-            else showShell(0,null);
-        });}
-        root.addView(actions,new FrameLayout.LayoutParams(-1,dp(58),Gravity.BOTTOM));setContentView(root);
+        getWindow().addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);
+        pad=new PadView();layoutEditor=new LayoutEditor(this,pad);setContentView(layoutEditor.root);
     }
-    private JSONObject placement(String id){
+    void finishEditor(){if(editing)persistEditedTemplate();showShell(0,null);}
+    private void persistEditedTemplate(){
+        try{
+            String name=getPreferences(0).getString("template_name","通用游戏"),active=getPreferences(0).getString("active_template_id","");
+            JSONArray templates=new JSONArray(getPreferences(0).getString("templates_v1","[]"));JSONObject chosen=null;
+            for(int i=0;i<templates.length();i++){JSONObject item=templates.optJSONObject(i);if(item!=null&&name.equals(item.optString("name"))&&(chosen==null||active.equals(item.optString("id"))))chosen=item;}
+            if(chosen!=null){put(chosen,"settings",new JSONObject(settings.toString()));getPreferences(0).edit().putString("templates_v1",templates.toString()).putString("active_template_id",chosen.optString("id")).apply();return;}
+            String[] names={"通用游戏","竞速驾驶","平台跳跃"},ids={"general","racing","platform"};
+            for(int i=0;i<names.length;i++)if(name.equals(names[i])){JSONObject saved=new JSONObject(getPreferences(0).getString("preset_layouts_v1","{}"));put(saved,ids[i],new JSONObject(settings.toString()));getPreferences(0).edit().putString("preset_layouts_v1",saved.toString()).putString("active_template_id",ids[i]).apply();break;}
+        }catch(Exception error){Toast.makeText(this,"布局已保存在当前手柄，可另存为新模板",Toast.LENGTH_SHORT).show();}
+    }
+    void refreshPad(){if(pad!=null)pad.refresh();}
+    float padUnit(){return pad==null?1:Math.min((pad.getWidth()-pad.getPaddingLeft()-pad.getPaddingRight())/1000f,(pad.getHeight()-pad.getPaddingTop()-pad.getPaddingBottom())/450f);}
+    JSONArray layoutFor(JSONObject config){
+        JSONObject c=command("preview_layout");put(c,"settings",config);
+        try{return new JSONArray(NativeBridge.call(c.toString()));}catch(Exception error){throw new IllegalStateException("模板预览无效",error);}
+    }
+    JSONObject placement(String id){
         JSONObject layout=settings.optJSONObject("layout");if(layout==null){layout=new JSONObject();put(settings,"layout",layout);}
         JSONObject p=layout.optJSONObject(id);if(p==null){p=new JSONObject();put(layout,id,p);}return p;
     }
-    private void visibleControls(){
+    void visibleControls(){
         try{
             JSONArray all=new JSONArray(NativeBridge.call(command("layout").toString()));ArrayList<String> ids=new ArrayList<>(),labels=new ArrayList<>();
             for(int i=0;i<all.length();i++){JSONObject p=all.getJSONObject(i);if(!p.optString("id").equals("settings")){ids.add(p.optString("id"));labels.add(p.optString("description"));}}
@@ -225,25 +234,7 @@ public final class MainActivity extends Activity {
                 .setPositiveButton("完成",null).show();
         }catch(Exception e){Toast.makeText(this,e.getMessage(),Toast.LENGTH_LONG).show();}
     }
-    private void editControl(String id){
-        LinearLayout content=new LinearLayout(this);content.setPadding(dp(24),dp(12),dp(24),dp(12));content.setOrientation(LinearLayout.VERTICAL);
-        JSONObject p=placement(id);
-        controlSlider(content,p,"大小","scale",60,160);
-        if(id.equals("lb")||id.equals("lt")||id.equals("rb")||id.equals("rt")){
-            controlSlider(content,p,"宽度","width",60,300);controlSlider(content,p,"高度","height",60,400);
-        }
-        AlertDialog dialog=new AlertDialog.Builder(this).setTitle(id.toUpperCase()+" · 实时预览").setView(content).setPositiveButton("完成",(d,w)->saveSettings())
-            .setNeutralButton("隐藏控件",(d,w)->{put(p,"hidden",true);saveSettings();})
-            .setNegativeButton("恢复默认",(d,w)->{settings.optJSONObject("layout").remove(id);saveSettings();}).create();
-        dialog.show();dialog.getWindow().setDimAmount(0);dialog.getWindow().setLayout(dp(320),-2);dialog.getWindow().setGravity(Gravity.END|Gravity.BOTTOM);
-    }
-    private void controlSlider(LinearLayout content,JSONObject p,String name,String key,int min,int max){
-        TextView label=text(name+" · "+Math.round(p.optDouble(key,1)*100)+"%",14,FG);content.addView(label);
-        SeekBar slider=new SeekBar(this);slider.setMax(max-min);slider.setProgress((int)Math.round(p.optDouble(key,1)*100)-min);slider.setContentDescription("控件"+name);content.addView(slider);
-        slider.setOnSeekBarChangeListener(new SeekBar.OnSeekBarChangeListener(){public void onStartTrackingTouch(SeekBar b){}public void onStopTrackingTouch(SeekBar b){}public void onProgressChanged(SeekBar b,int value,boolean user){if(user){
-            put(p,key,(value+min)/100.0);label.setText(name+" · "+(value+min)+"%");saveSettings();
-        }}});
-    }
+    private void editControl(String id){if(layoutEditor!=null)layoutEditor.edit(id);}
     void showSettings() {
         if(settingsDialog!=null)return;if(gyro!=null)gyro.stop();JSONObject c=command("settings");put(c,"open",true);snapshot=call(c);
         LinearLayout body=new LinearLayout(this);body.setOrientation(LinearLayout.VERTICAL);body.setPadding(dp(20),dp(12),dp(20),dp(12));body.setBackgroundColor(SURFACE);
@@ -287,23 +278,32 @@ public final class MainActivity extends Activity {
         add(page,text("开启：沿扳机长边滑动，左/上端 0%，右/下端 100%；关闭：按住全按，松手归零。",12,MUTED),8);
         Switch motion=new Switch(this);motion.setText(gyro.available()?"陀螺仪赛车转向":"设备不支持陀螺仪转向");motion.setTextColor(FG);motion.setEnabled(gyro.available());motion.setChecked(settings.optBoolean("gyro_enabled")&&gyro.available());
         motion.setOnCheckedChangeListener((b,on)->{put(settings,"gyro_enabled",on);saveSettings();syncGyro();});add(page,motion,20);
-        add(page,text("以重力方向为基准，仅使用 X / Z 轴；屏幕朝上放平时回中，无需回正按键。",14,MUTED),8);
-        slider(page,"满舵角度（度，越小越灵敏）",15,90,(int)settings.optDouble("gyro_range",45),"gyro_range");
+        add(page,text("每次进入手柄或恢复控制时自动校准；握好手机并保持稳定约 0.6 秒，将当前姿态设为中心。",14,MUTED),8);
+        add(page,text("转向比 / 方向盘总行程",14,FG),16);
+        Spinner ratio=new Spinner(this);ratio.setContentDescription("陀螺仪转向比");
+        ratio.setAdapter(new ArrayAdapter<String>(this,android.R.layout.simple_spinner_dropdown_item,new String[]{"F1 标准 · 360°（左右各 180°）","自定义"}));
+        int range=(int)settings.optDouble("gyro_range",45);ratio.setSelection(range==180?0:1);add(page,ratio,8);
+        SeekBar rangeSlider=slider(page,"单侧满舵角度（度，越小越灵敏）",15,450,range,"gyro_range");
+        ratio.setOnItemSelectedListener(new AdapterView.OnItemSelectedListener(){public void onNothingSelected(AdapterView<?> parent){}public void onItemSelected(AdapterView<?> parent,View view,int position,long id){
+            if(position!=0)return;int degrees=180;if(settings.optDouble("gyro_range",45)==degrees)return;
+            put(settings,"gyro_range",degrees);rangeSlider.setProgress(degrees-15);saveSettings();
+        }});
+        rangeSlider.setTag(ratio);
         slider(page,"转向死区（度）",0,10,(int)settings.optDouble("gyro_deadzone",2),"gyro_deadzone");
         Switch reverse=new Switch(this);reverse.setText("转向反向");reverse.setTextColor(FG);reverse.setChecked(settings.optBoolean("gyro_invert"));reverse.setOnCheckedChangeListener((b,on)->{put(settings,"gyro_invert",on);saveSettings();});add(page,reverse,12);
-        add(page,text("像方向盘一样转动手机控制左摇杆横轴；触摸左摇杆时优先使用触摸。游戏中点击「回中」校准。",12,MUTED),12);
+        add(page,text("像方向盘一样转动手机控制左摇杆横轴，支持跨圈累计角度；触摸左摇杆优先。游戏中可点击「回中」重新校准。F1 档采用常见模拟方向盘行程预设。",12,MUTED),12);
         haptics.setOnCheckedChangeListener((b,on)->{put(settings,"haptics",on);saveSettings();});add(page,haptics,20);
     }
-    private void slider(LinearLayout page,String label,int min,int max,int initial,String key) {
+    private SeekBar slider(LinearLayout page,String label,int min,int max,int initial,String key) {
         String unit=key.startsWith("gyro_")?"°":"%";TextView title=text(label+" · "+initial+unit,14,FG);add(page,title,20);SeekBar slider=new SeekBar(this);slider.setMax(max-min);slider.setProgress(initial-min);slider.setContentDescription(label);
         slider.setOnSeekBarChangeListener(new SeekBar.OnSeekBarChangeListener(){public void onStartTrackingTouch(SeekBar s){}public void onStopTrackingTouch(SeekBar s){}public void onProgressChanged(SeekBar s,int value,boolean user){
-            if(!user)return;int percent=value+min;title.setText(label+" · "+percent+unit);if(key.equals("deadzone"))put(settings,key,percent/100.0);else put(settings,key,percent);saveSettings();}});add(page,slider,8);
+            int percent=value+min;title.setText(label+" · "+percent+unit);if(!user)return;if(s.getTag() instanceof Spinner)((Spinner)s.getTag()).setSelection(1);if(key.equals("deadzone"))put(settings,key,percent/100.0);else put(settings,key,percent);saveSettings();}});add(page,slider,8);return slider;
     }
 
     private final class PadView extends FrameLayout {
         private final ArrayList<ControlView> controls=new ArrayList<>();
         PadView(){super(MainActivity.this);setBackgroundColor(BG);setMotionEventSplittingEnabled(true);
-            status=text(editing?"布局编辑 · 拖动移动，拖右下角缩放，点击调节":"Orbit Pad · 正在连接…",13,MUTED);addView(status);
+            status=text(editing?"自定义 · 点击编辑 / 拖动调整":"Orbit Pad · 正在连接…",13,MUTED);addView(status);
             try{JSONArray layout=new JSONArray(NativeBridge.call(command("layout").toString()));for(int i=0;i<layout.length();i++){ControlView v=new ControlView(layout.getJSONObject(i));controls.add(v);addView(v);}}
             catch(Exception e){throw new IllegalStateException(e);}
             setOnApplyWindowInsetsListener((v,i)->{setPadding(i.getSystemWindowInsetLeft(),i.getSystemWindowInsetTop(),i.getSystemWindowInsetRight(),i.getSystemWindowInsetBottom());return i;});
@@ -317,20 +317,15 @@ public final class MainActivity extends Activity {
                 float w=(float)p.getDouble("width")*scale,h=(float)p.getDouble("height")*scale;
                 ControlView control=controls.get(i);control.setVisibility(p.optBoolean("visible",true)?View.VISIBLE:View.GONE);
                 if(editing&&control.id.equals("settings"))control.setVisibility(View.GONE);
+                if(control.id.equals("calibrate")&&!editing&&!settings.optBoolean("gyro_enabled"))control.setVisibility(View.GONE);
                 control.layout(Math.round(cx-w/2),Math.round(cy-h/2),Math.round(cx+w/2),Math.round(cy+h/2));}}
             catch(Exception e){throw new IllegalStateException(e);}
         }
         void refresh(){for(ControlView v:controls)v.invalidate();}
-        void move(ControlView v,float dx,float dy){
-            float width=getWidth()-getPaddingLeft()-getPaddingRight(),height=getHeight()-getPaddingTop()-getPaddingBottom();
-            float scale=Math.min(width/1000f,height/450f),ox=getPaddingLeft()+(width-1000*scale)/2,oy=getPaddingTop()+(height-450*scale)/2;
-            JSONObject p=placement(v.id);put(p,"x",Math.max(0,Math.min(1000,(v.getLeft()+v.getWidth()/2f+dx-ox)/scale)));
-            put(p,"y",Math.max(0,Math.min(450,(v.getTop()+v.getHeight()/2f+dy-oy)/scale)));saveSettings();
-        }
     }
     private final class ControlView extends View {
         final String id,label;final boolean stick;final Paint paint=new Paint(Paint.ANTI_ALIAS_FLAG);
-        float dragX,dragY,offsetX,offsetY,initialScale,initialWidth,initialHeight;boolean resizing;
+        float dragX,dragY,offsetX,offsetY;boolean resizing;
         ControlView(JSONObject p){super(MainActivity.this);id=p.optString("id");label=p.optString("label");stick=id.equals("move")||id.equals("look");
             setContentDescription(p.optString("description"));setClickable(true);setFocusable(true);setImportantForAccessibility(View.IMPORTANT_FOR_ACCESSIBILITY_YES);
         }
@@ -361,9 +356,9 @@ public final class MainActivity extends Activity {
                     paint.setTextSize(Math.min(h*.22f,dp(12)));c.drawText(Math.round(value*100)+"%",w/2,h*.8f,paint);
                 }
             }
-            if(editing){paint.setColor(PRIMARY);paint.setStrokeWidth(dp(3));c.drawLine(w-dp(18),h-dp(5),w-dp(5),h-dp(18),paint);c.drawLine(w-dp(10),h-dp(5),w-dp(5),h-dp(10),paint);}
+            if(editing&&layoutEditor!=null&&layoutEditor.selected(id)){paint.setColor(PRIMARY);paint.setStrokeWidth(dp(2));c.drawLine(w-dp(18),h-dp(5),w-dp(5),h-dp(18),paint);c.drawLine(w-dp(10),h-dp(5),w-dp(5),h-dp(10),paint);}
             setAlpha(editing||id.equals("settings")||snapshot.optBoolean("enabled")?1f:.45f);
-            if(editing&&id.equals(selectedControl)){paint.setColor(PRIMARY);paint.setStyle(Paint.Style.STROKE);paint.setStrokeWidth(dp(2));c.drawRoundRect(dp(1),dp(1),w-dp(1),h-dp(1),dp(16),dp(16),paint);paint.setStyle(Paint.Style.FILL);}
+            if(editing&&layoutEditor!=null&&layoutEditor.selected(id)){paint.setColor(PRIMARY);paint.setStyle(Paint.Style.STROKE);paint.setStrokeWidth(dp(2));float corner=stick||id.length()==1?Math.min(w,h)/2:Math.min(Math.min(w,h)/2,dp(18));c.drawRoundRect(dp(1),dp(1),w-dp(1),h-dp(1),corner,corner,paint);paint.setStyle(Paint.Style.FILL);}
         }
         private void touch(MotionEvent e,int index,String phase){
             JSONObject cmd=command("touch");put(cmd,"id",e.getPointerId(index));put(cmd,"phase",phase);put(cmd,"control",id);
@@ -371,18 +366,15 @@ public final class MainActivity extends Activity {
         }
         @Override public boolean onTouchEvent(MotionEvent e){
             if(editing){
-                if(e.getActionMasked()==MotionEvent.ACTION_DOWN){selectedControl=id;dragX=e.getRawX();dragY=e.getRawY();offsetX=offsetY=0;resizing=e.getX()>getWidth()-dp(28)&&e.getY()>getHeight()-dp(28);
-                    JSONObject p=placement(id);initialScale=(float)p.optDouble("scale",1);initialWidth=(float)p.optDouble("width",1);initialHeight=(float)p.optDouble("height",1);pad.refresh();}
-                else if(e.getActionMasked()==MotionEvent.ACTION_MOVE){offsetX=e.getRawX()-dragX;offsetY=e.getRawY()-dragY;
-                    if(resizing){JSONObject p=placement(id);float unit=Math.min((pad.getWidth()-pad.getPaddingLeft()-pad.getPaddingRight())/1000f,(pad.getHeight()-pad.getPaddingTop()-pad.getPaddingBottom())/450f)*settings.optInt("size",100)/100f;
-                        if(id.equals("lb")||id.equals("lt")||id.equals("rb")||id.equals("rt")){
-                            put(p,"width",Math.max(.6,Math.min(3,initialWidth+offsetX/(132*unit*initialScale))));put(p,"height",Math.max(.6,Math.min(4,initialHeight+offsetY/(50*unit*initialScale))));
-                        }else put(p,"scale",Math.max(.6,Math.min(1.6,initialScale+(offsetX+offsetY)/(180*unit))));saveSettings();
-                    }else{setTranslationX(offsetX);setTranslationY(offsetY);}}
-                else if(e.getActionMasked()==MotionEvent.ACTION_UP){setTranslationX(0);setTranslationY(0);if(resizing)saveSettings();else if(Math.abs(offsetX)+Math.abs(offsetY)>dp(6))pad.move(this,offsetX,offsetY);else editControl(id);}
-                else if(e.getActionMasked()==MotionEvent.ACTION_CANCEL){setTranslationX(0);setTranslationY(0);}return true;
+                if(layoutEditor==null)return true;
+                int action=e.getActionMasked();
+                if(action==MotionEvent.ACTION_DOWN){dragX=e.getRawX();dragY=e.getRawY();offsetX=offsetY=0;
+                    float grab=Math.min(dp(22),Math.min(getWidth(),getHeight())*.28f);resizing=e.getX()>getWidth()-grab&&e.getY()>getHeight()-grab;layoutEditor.begin(id);}
+                else if(action==MotionEvent.ACTION_MOVE){offsetX=e.getRawX()-dragX;offsetY=e.getRawY()-dragY;layoutEditor.drag(offsetX,offsetY,resizing);}
+                else if(action==MotionEvent.ACTION_UP){layoutEditor.end();if(!resizing&&Math.abs(offsetX)+Math.abs(offsetY)<=dp(6))editControl(id);}
+                else if(action==MotionEvent.ACTION_CANCEL)layoutEditor.end();return true;
             }
-            if(id.equals("settings")){if(e.getActionMasked()==MotionEvent.ACTION_UP)performClick();return true;}
+            if(id.equals("calibrate")||id.equals("settings")){if(e.getActionMasked()==MotionEvent.ACTION_UP)performClick();return true;}
             int action=e.getActionMasked(),index=e.getActionIndex();
             if(action==MotionEvent.ACTION_DOWN||action==MotionEvent.ACTION_POINTER_DOWN){touch(e,index,"down");
                 if(snapshot.optBoolean("enabled")&&settings.optBoolean("haptics",true))performHapticFeedback(HapticFeedbackConstants.KEYBOARD_TAP);}
@@ -393,7 +385,8 @@ public final class MainActivity extends Activity {
         }
         @Override public boolean performClick(){
             super.performClick();
-            if(editing){selectedControl=id;editControl(id);}
+            if(editing){editControl(id);}
+            else if(id.equals("calibrate")){gyro.calibrate();Toast.makeText(MainActivity.this,"陀螺仪校准中，请保持手机稳定",Toast.LENGTH_SHORT).show();}
             else if(id.equals("settings"))showSettings();
             else if(!stick){
                 JSONObject c=command("touch");put(c,"id",-1);put(c,"control",id);put(c,"x",0);put(c,"y",0);put(c,"phase","down");snapshot=call(c);
@@ -405,7 +398,7 @@ public final class MainActivity extends Activity {
 
     @Override public void onWindowFocusChanged(boolean focus){super.onWindowFocusChanged(focus);if(!focus&&gyro!=null)gyro.stop();JSONObject c=command("focus");put(c,"value",focus);snapshot=call(c);if(focus){if(controllerVisible||editing)immersive();else edgeToEdge();}}
     @Override public void onBackPressed(){
-        if(editing){showShell(0,null);return;}
+        if(editing){if(layoutEditor!=null&&layoutEditor.back())return;finishEditor();return;}
         if(!controllerVisible){if(checking){disconnectTransport();if(shell!=null)shell.update(snapshot);}else if(shell==null||!shell.back())super.onBackPressed();return;}
         showShell(0,null);
     }

@@ -1,4 +1,4 @@
-"""Exercise the production Java gravity math without a phone or emulator."""
+"""Exercise production rotation calibration and multi-turn tracking without a phone."""
 from pathlib import Path
 import os
 import subprocess

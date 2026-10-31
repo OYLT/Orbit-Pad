@@ -40,6 +40,7 @@ final class AppShell {
     private String mode="scan";
     private TextView connectionStatus, homeConnectionStatus, formMessage;
     private Button connect, homePlay;
+    private TemplateCarousel templateCarousel;
     private EditText address, code;
     private LinearLayout connectionBody;
     private String stickyError;
@@ -101,7 +102,7 @@ final class AppShell {
         if(currentScroll!=null)scrollPositions[selected]=currentScroll.getScrollY();
         if(address!=null){draftAddress=address.getText().toString();draftCode=code.getText().toString();}
         address=null;code=null;
-        selected=index;page.removeAllViews();connectionStatus=null;homeConnectionStatus=null;homePlay=null;formMessage=null;connect=null;aboutBody=null;aboutToggle=null;refractionHint=null;qualityButton=null;
+        selected=index;page.removeAllViews();connectionStatus=null;homeConnectionStatus=null;homePlay=null;templateCarousel=null;formMessage=null;connect=null;aboutBody=null;aboutToggle=null;refractionHint=null;qualityButton=null;
         ScrollView scroll=new ScrollView(app);currentScroll=scroll;scroll.setFillViewport(true);scroll.setClipToPadding(false);
         scroll.setOnScrollChangeListener((v,x,y,oldX,oldY)->{
             if(currentScroll!=v)return;
@@ -171,32 +172,49 @@ final class AppShell {
         c.setBackground(app.rounded(SURFACE,0xff38333f,24));return c;
     }
     private void home() {
-        add(app.text("选择模板，调整布局与映射，做一只顺手的手柄。",14,MUTED),10);
-        LinearLayout current=card();
-        app.add(current,app.text(app.getPreferences(0).getString("template_name","通用游戏"),20,PRIMARY),0);
-        TemplatePreview preview=new TemplatePreview();current.addView(preview,new LinearLayout.LayoutParams(-1,app.dp(165)));
-        Button edit=app.button("自定义按键布局");edit.setOnClickListener(v->app.openEditor());app.add(current,edit,12);
-        add(current,24);
-        LinearLayout templates=card();app.add(templates,app.text("按键模板",18,FG),0);
-        String[] names={"通用游戏","竞速驾驶","平台跳跃"}, ids={"general","racing","platform"};
-        for(int i=0;i<names.length;i++){
-            final String id=ids[i],name=names[i];Button b=secondary(name+"  ↗");
-            b.setOnClickListener(v->{JSONObject cmd=app.command("preset");app.put(cmd,"name",id);app.applyTemplate(app.call(cmd),name);show(0);});app.add(templates,b,10);
+        add(app.text("滑动选择手柄，每张卡片都保留自己的布局。",14,MUTED),10);
+        ArrayList<TemplateCarousel.Entry> choices=new ArrayList<>();
+        String[] names={"通用游戏","竞速驾驶","平台跳跃"},ids={"general","racing","platform"};
+        JSONObject presetLayouts;try{presetLayouts=new JSONObject(app.getPreferences(0).getString("preset_layouts_v1","{}"));}catch(Exception error){presetLayouts=new JSONObject();}
+        for(int i=0;i<ids.length;i++){
+            JSONObject c=app.command("preset");app.put(c,"name",ids[i]);JSONObject config=presetLayouts.optJSONObject(ids[i]);
+            if(config!=null){try{app.layoutFor(config);}catch(Exception error){config=null;}}
+            choices.add(new TemplateCarousel.Entry(ids[i],names[i],config==null?app.call(c):config,false));
         }
-        JSONArray saved=templates();
-        for(int i=0;i<saved.length();i++){
-            final JSONObject template=saved.optJSONObject(i);if(template==null)continue;
-            LinearLayout row=new LinearLayout(app);row.setGravity(Gravity.CENTER_VERTICAL);
-            Button choose=secondary(template.optString("name"));choose.setOnClickListener(v->{app.applyTemplate(template.optJSONObject("settings"),template.optString("name"));show(0);});
-            row.addView(choose,new LinearLayout.LayoutParams(0,-2,1));Button remove=secondary("删除");remove.setContentDescription("删除模板"+template.optString("name"));
-            remove.setOnClickListener(v->new AlertDialog.Builder(app).setTitle("删除模板？").setMessage(template.optString("name"))
-                .setPositiveButton("删除",(d,w)->{JSONArray next=new JSONArray();JSONArray all=templates();for(int n=0;n<all.length();n++){JSONObject item=all.optJSONObject(n);if(item!=null&&!item.optString("id").equals(template.optString("id")))next.put(item);}storeTemplates(next);show(0);}).setNegativeButton("取消",null).show());
-            row.addView(remove,new LinearLayout.LayoutParams(app.dp(76),-2));app.add(templates,row,8);
+        JSONArray saved=templates();for(int i=0;i<saved.length();i++){
+            JSONObject item=saved.optJSONObject(i);if(item==null||item.optJSONObject("settings")==null)continue;
+            try{app.layoutFor(item.optJSONObject("settings"));choices.add(new TemplateCarousel.Entry(item.optString("id"),item.optString("name"),item.optJSONObject("settings"),true));}catch(Exception ignored){}
         }
-        Button save=app.button("＋ 保存为新模板");save.setOnClickListener(v->saveTemplate());app.add(templates,save,16);add(templates,20);
+        String currentName=app.getPreferences(0).getString("template_name","通用游戏");int initial=-1;
+        for(int i=0;i<choices.size();i++)if(choices.get(i).name.equals(currentName)&&choices.get(i).settings.toString().equals(app.settings.toString())){initial=i;break;}
+        if(initial<0){choices.add(0,new TemplateCarousel.Entry("working",currentName,app.settings,false));initial=0;}
+        LinearLayout navigation=new LinearLayout(app);navigation.setGravity(Gravity.CENTER_VERTICAL);
+        TextView counter=app.text("",13,PRIMARY);counter.setGravity(Gravity.CENTER);navigation.addView(counter,new LinearLayout.LayoutParams(0,app.dp(44),1));
+        Button previous=secondary("‹"),next=secondary("›");previous.setContentDescription("上一个手柄配置");next.setContentDescription("下一个手柄配置");
+        navigation.addView(previous,new LinearLayout.LayoutParams(app.dp(48),app.dp(44)));navigation.addView(next,new LinearLayout.LayoutParams(app.dp(48),app.dp(44)));add(navigation,16);
+        Button remove=secondary("删除此模板");remove.setContentDescription("删除当前手柄模板");
+        final TemplateCarousel[] holder=new TemplateCarousel[1];
+        TemplateCarousel carousel=new TemplateCarousel(app,choices,initial,entry->{
+            app.applyTemplate(entry.settings,entry.name);if(!entry.id.equals("working"))app.getPreferences(0).edit().putString("active_template_id",entry.id).apply();
+            int index=holder[0].activeIndex();counter.setText((index+1)+" / "+choices.size());previous.setEnabled(index>0);next.setEnabled(index<choices.size()-1);remove.setVisibility(entry.saved?View.VISIBLE:View.GONE);
+        });holder[0]=carousel;templateCarousel=carousel;
+        counter.setText((initial+1)+" / "+choices.size());previous.setEnabled(initial>0);next.setEnabled(initial<choices.size()-1);
+        previous.setOnClickListener(v->carousel.select(carousel.activeIndex()-1,true));next.setOnClickListener(v->carousel.select(carousel.activeIndex()+1,true));
+        int previewHeight=Math.max(190,Math.min(270,(int)((app.getResources().getDisplayMetrics().widthPixels/app.getResources().getDisplayMetrics().density-126)*.45f)+96));
+        addCarousel(carousel,previewHeight);
+        Button edit=app.button("自定义按键布局");edit.setOnClickListener(v->app.openEditor());add(edit,16);
+        LinearLayout actions=new LinearLayout(app);Button save=secondary("＋ 保存为新模板");save.setOnClickListener(v->saveTemplate());actions.addView(save,new LinearLayout.LayoutParams(0,-2,1));
+        remove.setVisibility(choices.get(initial).saved?View.VISIBLE:View.GONE);remove.setOnClickListener(v->{
+            TemplateCarousel.Entry entry=carousel.activeEntry();if(!entry.saved)return;
+            new AlertDialog.Builder(app).setTitle("删除模板？").setMessage(entry.name).setPositiveButton("删除",(d,w)->{
+                JSONArray all=templates(),result=new JSONArray();for(int i=0;i<all.length();i++){JSONObject item=all.optJSONObject(i);if(item!=null&&!item.optString("id").equals(entry.id))result.put(item);}storeTemplates(result);show(0);
+            }).setNegativeButton("取消",null).show();
+        });actions.addView(remove,new LinearLayout.LayoutParams(0,-2,1));add(actions,12);
         Button mapping=secondary("按键映射与手感设置");mapping.setOnClickListener(v->app.showSettings());add(mapping,16);
-        homePlay=app.button("");
-        homePlay.setOnClickListener(v->{if(app.snapshot.optBoolean("connected"))app.openController();else show(1);});add(homePlay,16);
+        homePlay=app.button("");homePlay.setOnClickListener(v->{if(app.snapshot.optBoolean("connected"))app.openController();else show(1);});add(homePlay,16);
+    }
+    private void addCarousel(TemplateCarousel carousel,int height){
+        LinearLayout.LayoutParams p=new LinearLayout.LayoutParams(-1,app.dp(height));p.topMargin=app.dp(8);content.addView(carousel,p);
     }
     private JSONArray templates(){try{return new JSONArray(app.getPreferences(0).getString("templates_v1","[]"));}catch(Exception e){return new JSONArray();}}
     private void storeTemplates(JSONArray data){app.getPreferences(0).edit().putString("templates_v1",data.toString()).apply();}
@@ -207,7 +225,7 @@ final class AppShell {
             String value=name.getText().toString().trim();if(value.isEmpty()||value.length()>30){name.setError("请输入 1–30 字的名称");return;}
             JSONArray list=templates();if(list.length()>=24){name.setError("最多保存 24 个模板");return;}
             JSONObject entry=new JSONObject();app.put(entry,"id",UUID.randomUUID().toString());app.put(entry,"name",value);app.put(entry,"settings",app.settings);
-            list.put(entry);storeTemplates(list);app.getPreferences(0).edit().putString("template_name",value).apply();dialog.dismiss();show(0);
+            list.put(entry);storeTemplates(list);app.getPreferences(0).edit().putString("template_name",value).putString("active_template_id",entry.optString("id")).apply();dialog.dismiss();show(0);
         }));dialog.show();
     }
     private Button secondary(String label){Button b=app.button(label);b.setBackground(app.rounded(0xff37313e,0,20));b.setTextColor(FG);return b;}
@@ -338,18 +356,6 @@ final class AppShell {
         aboutExpanded=expanded;if(aboutBody==null||aboutToggle==null)return;
         aboutBody.setVisibility(expanded?View.VISIBLE:View.GONE);aboutToggle.setText("关于 Orbit Pad    "+(expanded?"⌃":"⌄"));
         if(Build.VERSION.SDK_INT>=30)aboutToggle.setStateDescription(expanded?"已展开":"已收起");
-    }
-    private final class TemplatePreview extends View {
-        final Paint p=new Paint(Paint.ANTI_ALIAS_FLAG);
-        TemplatePreview(){super(app);setContentDescription("当前手柄模板预览");}
-        @Override protected void onDraw(Canvas c){super.onDraw(c);float scale=Math.min(getWidth()/1000f,getHeight()/450f),ox=(getWidth()-scale*1000)/2,oy=(getHeight()-scale*450)/2;
-            try{JSONArray layout=new JSONArray(NativeBridge.call(app.command("layout").toString()));for(int i=0;i<layout.length();i++){
-                JSONObject b=layout.getJSONObject(i);String id=b.optString("id");if(!b.optBoolean("visible",true)||id.equals("settings"))continue;
-                float x=(float)b.optDouble("x")*scale+ox,y=(float)b.optDouble("y")*scale+oy,w=(float)b.optDouble("width")*scale,h=(float)b.optDouble("height")*scale;
-                p.setColor(0xff45404c);c.drawRoundRect(new RectF(x-w/2,y-h/2,x+w/2,y+h/2),h/2,h/2,p);
-                if(id.equals("move")||id.equals("look")){p.setColor(PRIMARY);c.drawCircle(x,y,h*.22f,p);}else{p.setColor(FG);p.setTextAlign(Paint.Align.CENTER);p.setTextSize(h*.38f);c.drawText(b.optString("label"),x,y-(p.ascent()+p.descent())/2,p);}
-            }}catch(Exception ignored){}
-        }
     }
     private static final class QrMark extends View {
         final Paint p=new Paint(Paint.ANTI_ALIAS_FLAG);

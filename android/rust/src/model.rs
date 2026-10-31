@@ -155,6 +155,8 @@ pub struct Settings {
     pub haptics: bool,
     pub preset: String,
     pub layout: BTreeMap<String, Placement>,
+    pub group_dpad: bool,
+    pub group_face: bool,
     pub linear_triggers: bool,
     pub gyro_enabled: bool,
     pub gyro_range: f32,
@@ -174,6 +176,8 @@ impl Default for Settings {
             haptics: true,
             preset: "general".into(),
             layout: BTreeMap::new(),
+            group_dpad: true,
+            group_face: true,
             linear_triggers: false,
             gyro_enabled: false,
             gyro_range: 45.0,
@@ -185,8 +189,6 @@ impl Default for Settings {
 impl Settings {
     // Preserve saved layouts and feel settings when upgrading keyboard templates.
     pub fn migrate_keyboard_mapping(&mut self) {
-        // Old templates may still carry the removed manual recenter control.
-        self.layout.remove("calibrate");
         let old = CONTROLS
             .iter()
             .filter(|c| **c != "xbox")
@@ -214,19 +216,20 @@ impl Settings {
             return Err("手感设置无效".into());
         }
         if !self.gyro_range.is_finite()
-            || !(15.0..=90.0).contains(&self.gyro_range)
+            || !(15.0..=450.0).contains(&self.gyro_range)
             || !self.gyro_deadzone.is_finite()
             || !(0.0..=10.0).contains(&self.gyro_deadzone)
         {
             return Err("陀螺仪设置无效".into());
         }
         for (id, p) in &self.layout {
-            if !(BUTTONS.contains(&id.as_str()) || ["move", "look"].contains(&id.as_str()))
+            if !(BUTTONS.contains(&id.as_str())
+                || ["move", "look", "calibrate"].contains(&id.as_str()))
                 || !p.width.is_finite()
-                || !(0.6..=3.0).contains(&p.width)
+                || !(0.01..=1000.0).contains(&p.width)
                 || !p.height.is_finite()
-                || !(0.6..=4.0).contains(&p.height)
-                || (!["lb", "lt", "rb", "rt"].contains(&id.as_str())
+                || !(0.01..=1000.0).contains(&p.height)
+                || (!["lb", "lt", "rb", "rt", "a", "b", "x", "y"].contains(&id.as_str())
                     && (p.width != 1.0 || p.height != 1.0))
                 || !p.scale.is_finite()
                 || !(0.6..=1.6).contains(&p.scale)
@@ -383,14 +386,15 @@ pub fn layout(settings: &Settings) -> Value {
         ("select", "View", "View 背包", 442., 188., 90., 46.),
         ("start", "Menu", "Menu 暂停", 558., 188., 90., 46.),
         ("xbox", "Xbox", "Xbox · 呼出 Game Bar", 500., 104., 54., 54.),
+        ("calibrate", "回中", "陀螺仪回中校准", 500., 260., 86., 42.),
         ("settings", "设置", "手柄设置", 935., 29., 86., 40.),
     ];
     json!(controls
         .into_iter()
         .map(|(id, label, description, x, y, w, h)| {
             let p = settings.layout.get(id).cloned().unwrap_or_default();
-            let w = (w * scale * p.scale * p.width).min(980.0);
-            let h = (h * scale * p.scale * p.height).min(430.0);
+            let w = (w * scale * p.scale * p.width).clamp(24.0, 992.0);
+            let h = (h * scale * p.scale * p.height).clamp(24.0, 442.0);
             json!({
                 "id": id, "label": label, "description": description,
                 "x": p.x.unwrap_or(x).clamp(w/2.0+4.0, 996.0-w/2.0),
@@ -405,7 +409,49 @@ pub fn layout(settings: &Settings) -> Value {
 mod tests {
     use super::*;
     #[test]
-    fn saved_recenter_control_is_removed_without_losing_other_settings() {
+    fn old_layouts_default_to_linked_groups_and_face_keys_fit_the_canvas() {
+        let s: Settings = serde_json::from_str("{}").unwrap();
+        assert!(s.group_face && s.group_dpad);
+        for id in ["a", "b", "x", "y", "lb", "lt", "rb", "rt"] {
+            let mut settings = Settings::default();
+            settings.layout.insert(
+                id.into(),
+                Placement {
+                    width: 1000.0,
+                    height: 1000.0,
+                    ..Placement::default()
+                },
+            );
+            settings.validate().unwrap();
+            let controls = layout(&settings);
+            let p = controls
+                .as_array()
+                .unwrap()
+                .iter()
+                .find(|p| p["id"] == id)
+                .unwrap();
+            let x = p["x"].as_f64().unwrap();
+            let y = p["y"].as_f64().unwrap();
+            let w = p["width"].as_f64().unwrap();
+            let h = p["height"].as_f64().unwrap();
+            assert!(
+                x - w / 2.0 >= 4.0
+                    && x + w / 2.0 <= 996.0
+                    && y - h / 2.0 >= 4.0
+                    && y + h / 2.0 <= 446.0
+            );
+        }
+        let settings = Settings {
+            group_face: false,
+            group_dpad: false,
+            ..Settings::default()
+        };
+        let decoded: Settings =
+            serde_json::from_str(&serde_json::to_string(&settings).unwrap()).unwrap();
+        assert!(!decoded.group_face && !decoded.group_dpad);
+    }
+    #[test]
+    fn saved_recenter_control_and_custom_range_are_preserved() {
         let mut settings = Settings {
             gyro_enabled: true,
             gyro_range: 60.0,
@@ -424,7 +470,7 @@ mod tests {
         let mut loaded: Settings = serde_json::from_value(json!(settings)).unwrap();
         loaded.migrate_keyboard_mapping();
         loaded.validate().unwrap();
-        assert!(!loaded.layout.contains_key("calibrate"));
+        assert!(loaded.layout.contains_key("calibrate"));
         assert!(loaded.layout["a"].hidden);
         assert!(loaded.gyro_enabled);
         assert_eq!(loaded.gyro_range, 60.0);
@@ -432,7 +478,7 @@ mod tests {
             .as_array()
             .unwrap()
             .iter()
-            .all(|p| p["id"] != "calibrate"));
+            .any(|p| p["id"] == "calibrate"));
     }
     #[test]
     fn old_native_templates_and_rectangular_pedals() {

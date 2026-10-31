@@ -8,7 +8,7 @@ import sys
 
 parser = argparse.ArgumentParser()
 parser.add_argument('--serial', required=True)
-parser.add_argument('--suite', choices=['glass', 'motion', 'edge', 'polish'], default='glass')
+parser.add_argument('--suite', choices=['glass', 'motion', 'edge', 'polish', 'layout'], default='glass')
 parser.add_argument('--output', default='artifacts/liquid-glass')
 args = parser.parse_args()
 root = Path(__file__).resolve().parents[1]
@@ -57,7 +57,7 @@ passed = exit_code == 0 and any('orbit_result=PASS' in line for line in lines) a
 hyperos = subprocess.check_output([*adb, 'shell', 'getprop', 'ro.mi.os.version.name'], text=True).strip()
 report = {'ok': passed, 'model': model, 'api': int(api), 'hyperos': hyperos, 'suite': args.suite, 'checks': checks, 'performance': performance,
           'apkSha256': hashlib.sha256(apk.read_bytes()).hexdigest(),
-          'measurement': 'Top Gaussian fade, foreground refraction and directional/interrupted page transitions.' if args.suite == 'polish' else 'Pixel comparisons during negative overscroll, mode changes, repeated crossings and release.' if args.suite == 'edge' else 'Scripted long presses, velocity changes, release/cancel, pointer loss and visibility changes.' if args.suite == 'motion' else 'Window FrameMetrics TOTAL_DURATION during eight alternating smooth scrolls per quality; smoke test, not Macrobenchmark.'}
+          'measurement': 'Native controller editor geometry, grouped gestures, independent saved previews, carousel switching and Gaussian fallback; functional checks, not a frame-rate benchmark.' if args.suite == 'layout' else 'Top Gaussian fade, foreground refraction and directional/interrupted page transitions.' if args.suite == 'polish' else 'Pixel comparisons during negative overscroll, mode changes, repeated crossings and release.' if args.suite == 'edge' else 'Scripted long presses, velocity changes, release/cancel, pointer loss and visibility changes.' if args.suite == 'motion' else 'Window FrameMetrics TOTAL_DURATION during eight alternating smooth scrolls per quality; smoke test, not Macrobenchmark.'}
 (out / 'report.json').write_text(json.dumps(report, indent=2, ensure_ascii=False), encoding='utf-8')
 print(f'{len(checks)} checks; {len(performance)} performance samples; result={"PASS" if passed else "FAIL"}')
 sys.exit(0 if passed else 1)

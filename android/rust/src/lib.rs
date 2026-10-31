@@ -105,6 +105,13 @@ impl Engine {
         match command["op"].as_str().unwrap_or("") {
             "snapshot" => {}
             "layout" => return Ok(model::layout(&c.settings)),
+            "preview_layout" => {
+                let mut settings: Settings = serde_json::from_value(command["settings"].clone())
+                    .map_err(|_| "模板格式无效")?;
+                settings.migrate_keyboard_mapping();
+                settings.validate()?;
+                return Ok(model::layout(&settings));
+            }
             "parse_qr" => {
                 return serde_json::to_value(model::Pairing::parse(
                     command["value"].as_str().unwrap_or(""),
@@ -201,7 +208,7 @@ impl Engine {
             "gyro" => {
                 if c.enabled() && c.settings.gyro_enabled {
                     let angle = command["angle"].as_f64().ok_or("陀螺仪角度无效")? as f32;
-                    if !angle.is_finite() || angle.abs() > 360.0 {
+                    if !angle.is_finite() || angle.abs() > 450.0 {
                         return Err("陀螺仪角度无效".into());
                     }
                     let s = &c.settings;
@@ -300,6 +307,76 @@ pub extern "system" fn Java_app_orbitpad_controller_NativeBridge_call(
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn card_preview_is_isolated_from_active_settings_and_input() {
+        let engine = Engine::new();
+        let original = engine.call(json!({"op":"snapshot"})).unwrap();
+        let mut settings = Settings::default();
+        settings.layout.insert(
+            "a".into(),
+            model::Placement {
+                width: 9.75,
+                height: 2.0,
+                ..model::Placement::default()
+            },
+        );
+        let preview = engine
+            .call(json!({"op":"preview_layout","settings":settings}))
+            .unwrap();
+        let a = preview
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|b| b["id"] == "a")
+            .unwrap();
+        assert!(a["width"].as_f64().unwrap() > 600.0);
+        assert_eq!(
+            engine.call(json!({"op":"snapshot"})).unwrap()["settings"],
+            original["settings"]
+        );
+        assert_eq!(
+            engine.call(json!({"op":"snapshot"})).unwrap()["state"],
+            original["state"]
+        );
+    }
+    #[test]
+    fn formula_and_custom_steering_ranges() {
+        let e = Engine::new();
+        {
+            let mut c = e.core.lock().unwrap();
+            c.connected = true;
+            c.ready = true;
+        }
+        for range in [180.0, 450.0] {
+            let settings = Settings {
+                gyro_enabled: true,
+                gyro_range: range,
+                ..Settings::default()
+            };
+            e.call(json!({"op":"configure","settings":settings}))
+                .unwrap();
+            for sign in [-1.0, 1.0] {
+                let value = e.call(json!({"op":"gyro","angle":sign * range})).unwrap();
+                assert_eq!(value["state"]["axes"][0], json!(sign));
+                let angle = sign * (range + 2.0) / 2.0;
+                let value = e.call(json!({"op":"gyro","angle":angle})).unwrap();
+                assert!(
+                    (value["state"]["axes"][0].as_f64().unwrap() - f64::from(sign) * 0.62).abs()
+                        < 0.001
+                );
+            }
+            let value = e.call(json!({"op":"gyro","angle":0})).unwrap();
+            assert_eq!(value["state"]["axes"][0], 0.0);
+        }
+        assert!(e.call(json!({"op":"gyro","angle":451})).is_err());
+        let invalid = Settings {
+            gyro_range: 451.0,
+            ..Settings::default()
+        };
+        assert!(e
+            .call(json!({"op":"configure","settings":invalid}))
+            .is_err());
+    }
     #[test]
     fn racing_gyro_manual_override_and_lifecycle() {
         let e = Engine::new();

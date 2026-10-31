@@ -35,6 +35,7 @@ public final class DeviceInstrumentation extends Instrumentation {
             activity = startActivitySync(intent);
             trace("wait-idle");
             waitForIdleSync();
+            if("layout".equals(arguments.getString("suite"))){layoutCustomization();result.putString("orbit_result","PASS");finish(Activity.RESULT_OK,result);return;}
             if("connection".equals(arguments.getString("suite"))){persistentConnection();result.putString("orbit_result","PASS");finish(Activity.RESULT_OK,result);return;}
             if("racing".equals(arguments.getString("suite"))){racingControls();result.putString("orbit_result","PASS");finish(Activity.RESULT_OK,result);return;}
             if("native".equals(arguments.getString("suite"))){nativeGamepad();result.putString("orbit_result","PASS");finish(Activity.RESULT_OK,result);return;}
@@ -192,8 +193,79 @@ public final class DeviceInstrumentation extends Instrumentation {
         phase("connection-home-status-updated","","false");
         }finally{core(new org.json.JSONObject().put("op","configure").put("settings",original).toString());}
     }
+    private void applyLayoutConfig(org.json.JSONObject config,String name) throws Exception {
+        java.lang.reflect.Method apply=activity.getClass().getDeclaredMethod("applyTemplate",org.json.JSONObject.class,String.class);apply.setAccessible(true);
+        runOnMainSync(()->{try{apply.invoke(activity,config,name);}catch(Exception error){throw new RuntimeException(error);}});waitForIdleSync();SystemClock.sleep(180);
+    }
+    private float previewWidth(Object preview,String id) throws Exception {
+        org.json.JSONArray layout=(org.json.JSONArray)member(preview,"layout");for(int i=0;i<layout.length();i++){org.json.JSONObject b=layout.getJSONObject(i);if(id.equals(b.optString("id")))return (float)b.optDouble("width");}return -1;
+    }
+    private void carouselSelect(Object carousel,int index,boolean animate) throws Exception {
+        java.lang.reflect.Method method=carousel.getClass().getDeclaredMethod("select",int.class,boolean.class);method.setAccessible(true);
+        runOnMainSync(()->{try{method.invoke(carousel,index,animate);}catch(Exception error){throw new RuntimeException(error);}});
+    }
+    private void editorDrag(String name,float dx,float dy){
+        Rect rect=bounds(waitNode(name,5000));float[] point={rect.exactCenterX(),rect.exactCenterY()},end={point[0]+dx,point[1]+dy};
+        downTime=SystemClock.uptimeMillis();touch(MotionEvent.ACTION_DOWN,new int[]{0},new float[][]{point});touch(MotionEvent.ACTION_MOVE,new int[]{0},new float[][]{end});touch(MotionEvent.ACTION_UP,new int[]{0},new float[][]{end});SystemClock.sleep(200);
+    }
+    private void layoutCustomization() throws Exception {
+        String[] keys={"rust_settings","template_name","templates_v1","active_template_id","preset_layouts_v1"};String[] old=new String[keys.length];for(int i=0;i<keys.length;i++)old[i]=activity.getPreferences(0).getString(keys[i],null);
+        org.json.JSONObject original=core("{\"op\":\"snapshot\"}").getJSONObject("settings");
+        org.json.JSONObject defaults=core("{\"op\":\"preset\",\"name\":\"general\"}");
+        try{
+            org.json.JSONObject wide=new org.json.JSONObject(defaults.toString());wide.put("layout",new org.json.JSONObject("{\"a\":{\"width\":4},\"b\":{\"hidden\":true}}"));
+            org.json.JSONObject small=new org.json.JSONObject(defaults.toString());small.put("layout",new org.json.JSONObject("{\"a\":{\"scale\":0.6}}"));
+            org.json.JSONArray templates=new org.json.JSONArray();templates.put(new org.json.JSONObject().put("id","layout-test-wide").put("name","长键布局").put("settings",wide));templates.put(new org.json.JSONObject().put("id","layout-test-small").put("name","紧凑布局").put("settings",small));
+            activity.getPreferences(0).edit().putString("templates_v1",templates.toString()).remove("preset_layouts_v1").remove("active_template_id").commit();applyLayoutConfig(defaults,"通用游戏");invokeActivity("finishEditor");waitNode("横向手柄配置卡片",5000);
+            Object shell=member(activity,"shell"),carousel=member(shell,"templateCarousel");
+            java.util.ArrayList<?> previews=(java.util.ArrayList<?>)member(carousel,"previews");
+            glassCheck("each-card-resolves-its-own-saved-layout",previewWidth(previews.get(3),"a")>260&&previewWidth(previews.get(4),"a")<40);
+            glassShot("layout-home-cards").recycle();
+            carouselSelect(carousel,1,true);SystemClock.sleep(110);
+            java.util.ArrayList<?> cards=(java.util.ArrayList<?>)member(carousel,"cards");android.view.View outgoing=(android.view.View)cards.get(0);
+            glassCheck("carousel-stacks-and-translates-during-switch",outgoing.getScaleX()<.999f&&Math.abs(outgoing.getTranslationX())>1);
+            SystemClock.sleep(500);glassCheck("carousel-commits-selected-preset",core("{\"op\":\"snapshot\"}").getJSONObject("settings").optString("preset").equals("racing"));
+            android.view.View deck=(android.view.View)carousel;int[] deckXY=new int[2];runOnMainSync(()->deck.getLocationOnScreen(deckXY));
+            float[] swipeStart={deckXY[0]+deck.getWidth()*.2f,deckXY[1]+deck.getHeight()*.5f},swipeEnd={deckXY[0]+deck.getWidth()*.8f,deckXY[1]+deck.getHeight()*.5f};
+            downTime=SystemClock.uptimeMillis();touch(MotionEvent.ACTION_DOWN,new int[]{0},new float[][]{swipeStart});touch(MotionEvent.ACTION_MOVE,new int[]{0},new float[][]{swipeEnd});touch(MotionEvent.ACTION_UP,new int[]{0},new float[][]{swipeEnd});SystemClock.sleep(500);
+            glassCheck("horizontal-touch-swipe-changes-card",((Integer)member(carousel,"active"))==0);
+            Class<?> previewType=previews.get(0).getClass();java.lang.reflect.Method blur=previewType.getDeclaredMethod("gaussian",int[].class,int.class,int.class,float.class);blur.setAccessible(true);
+            int[] impulse=new int[81];impulse[40]=0xffffffff;int[] filtered=(int[])blur.invoke(null,impulse,9,9,1f);
+            glassCheck("legacy-gaussian-fallback-spreads-focus-symmetrically",(filtered[40]>>>24)>(filtered[39]>>>24)&&(filtered[39]>>>24)>0&&filtered[39]==filtered[41]&&filtered[31]==filtered[49]&&impulse[39]==0);
+            carouselSelect(carousel,3,false);SystemClock.sleep(200);glassCheck("card-selection-restores-wide-and-hidden-controls",core("{\"op\":\"snapshot\"}").getJSONObject("settings").getJSONObject("layout").getJSONObject("b").optBoolean("hidden"));
+            glassCheck("switching-cards-does-not-overwrite-saved-templates",templates.toString().equals(activity.getPreferences(0).getString("templates_v1","")));
+            glassShot("layout-saved-wide-card").recycle();
+            final android.os.Handler uiHandler=(android.os.Handler)member(activity,"handler");final Runnable pollTask=(Runnable)member(activity,"poll");runOnMainSync(()->uiHandler.removeCallbacks(pollTask));
+            invokeActivity("openController");SystemClock.sleep(900);Rect playA=bounds(waitNode("A",5000)),playStick=bounds(waitNode("左摇杆，模拟量输出",5000));
+            invokeActivity("openEditor");SystemClock.sleep(650);Rect editA=bounds(waitNode("A",5000)),editStick=bounds(waitNode("左摇杆，模拟量输出",5000));
+            glassCheck("editor-and-play-control-bounds-are-identical",playA.equals(editA)&&playStick.equals(editStick));runOnMainSync(()->uiHandler.post(pollTask));
+            applyLayoutConfig(defaults,"通用游戏");SystemClock.sleep(200);
+            String[] face={"X","A","B","Y"};Rect[] before=new Rect[4];for(int i=0;i<4;i++)before[i]=bounds(waitNode(face[i],5000));
+            editorDrag("A",-100,-32);boolean together=true;for(int i=0;i<4;i++){Rect after=bounds(waitNode(face[i],5000));together&=Math.abs(after.centerX()-before[i].centerX()+100)<=2&&Math.abs(after.centerY()-before[i].centerY()+32)<=2;}
+            glassCheck("face-buttons-drag-as-one-group-by-default",together);
+            Rect up=bounds(waitNode("方向上",5000)),left=bounds(waitNode("方向左",5000));editorDrag("方向上",-65,-20);
+            Rect movedUp=bounds(waitNode("方向上",5000)),movedLeft=bounds(waitNode("方向左",5000));glassCheck("dpad-drags-as-one-group-by-default",Math.abs(movedUp.centerX()-up.centerX()+65)<=2&&Math.abs(movedLeft.centerX()-left.centerX()+65)<=2);
+            tapNode("A");waitNode("绑定 XABY 组合",5000);Object pad=member(activity,"pad");glassCheck("floating-editor-menu-does-not-shrink-canvas",((android.view.View)pad).getHeight()==((android.view.View)member(member(activity,"layoutEditor"),"root")).getHeight());
+            glassShot("layout-floating-size-menu").recycle();tapNode("绑定 XABY 组合");Rect b=bounds(waitNode("B",5000));progress("控件宽度",9000);SystemClock.sleep(250);
+            Rect stretched=bounds(waitNode("A",5000));Rect unchangedB=bounds(waitNode("B",5000));
+            android.view.View canvas=(android.view.View)pad;int[] xy=new int[2];runOnMainSync(()->canvas.getLocationOnScreen(xy));
+            glassCheck("unlinked-face-key-stretches-without-old-cap",stretched.width()>canvas.getWidth()*.7f&&stretched.left>=xy[0]&&stretched.right<=xy[0]+canvas.getWidth());
+            glassCheck("unlinked-width-change-preserves-other-face-keys",b.equals(unchangedB));
+            tapNode("完成");glassShot("layout-elongated-a").recycle();
+            invokeActivity("finishEditor");
+            org.json.JSONObject presetSaved=new org.json.JSONObject(activity.getPreferences(0).getString("preset_layouts_v1","{}"));
+            glassCheck("save-and-return-updates-the-current-configuration-card",presetSaved.getJSONObject("general").getJSONObject("layout").getJSONObject("a").optDouble("width")>10);
+            tapNode("＋ 保存为新模板");List<AccessibilityNodeInfo> inputs=new ArrayList<>();inputs(automation.getRootInActiveWindow(),inputs);setText(inputs.get(0),"自定义长键");tapNode("保存");
+            org.json.JSONArray stored=new org.json.JSONArray(activity.getPreferences(0).getString("templates_v1","[]"));org.json.JSONObject config=stored.getJSONObject(stored.length()-1).getJSONObject("settings");
+            glassCheck("group-binding-and-long-width-survive-template-save",!config.optBoolean("group_face",true)&&config.getJSONObject("layout").getJSONObject("a").optDouble("width")>10);
+            glassShot("layout-saved-custom-card").recycle();
+        }finally{
+            applyLayoutConfig(original,old[1]==null?"通用游戏":old[1]);
+            android.content.SharedPreferences.Editor restore=activity.getPreferences(0).edit();for(int i=0;i<keys.length;i++){if(old[i]==null)restore.remove(keys[i]);else restore.putString(keys[i],old[i]);}restore.commit();
+        }
+    }
     private void nativeShell() throws Exception {
-        String[] keys={"rust_settings","template_name","templates_v1"};String[] previous=new String[keys.length];
+        String[] keys={"rust_settings","template_name","templates_v1","active_template_id","preset_layouts_v1"};String[] previous=new String[keys.length];
         for(int i=0;i<keys.length;i++)previous[i]=activity.getPreferences(0).getString(keys[i],null);
         try{
             waitContains("你的手柄",5000);phase("shell-home","","false");
@@ -202,17 +274,7 @@ public final class DeviceInstrumentation extends Instrumentation {
             tapNode("导航连接");waitNode("打开相机扫码",5000);phase("shell-scan-default","","false");
             tapNode("USB 直连");waitNode("连接 USB 手柄",5000);phase("shell-usb-option","","false");
             tapNode("蓝牙直连");waitNode("选择已配对的电脑",5000);phase("shell-bluetooth-option","","false");
-            tapNode("导航主页");tapNode("自定义按键布局");waitNode("A",5000);SystemClock.sleep(700);
-            Rect a=bounds(waitNode("A",5000));float[][] first={{a.exactCenterX(),a.exactCenterY()}},moved={{a.exactCenterX()-140,a.exactCenterY()-60}};
-            downTime=SystemClock.uptimeMillis();touch(MotionEvent.ACTION_DOWN,new int[]{0},first);touch(MotionEvent.ACTION_MOVE,new int[]{0},moved);touch(MotionEvent.ACTION_UP,new int[]{0},moved);SystemClock.sleep(250);
-            Rect changed=bounds(waitNode("A",5000));if(Math.abs(changed.exactCenterX()-moved[0][0])>8||Math.abs(changed.exactCenterY()-moved[0][1])>8)throw new AssertionError("Drag layout was not saved");
-            phase("shell-editor-drag","","false");tapNode("A");progress("控件大小",20);tapNode("完成");SystemClock.sleep(200);
-            Rect scaled=bounds(waitNode("A",5000));if(Math.abs(scaled.width()/(float)a.width()-.8f)>.04)throw new AssertionError("Per-control size did not change");
-            phase("shell-control-scale","","false");tapNode("保存并返回");tapNode("＋ 保存为新模板");
-            List<AccessibilityNodeInfo> inputs=new ArrayList<>();inputs(automation.getRootInActiveWindow(),inputs);if(inputs.size()!=1)throw new AssertionError("Template name field missing");setText(inputs.get(0),"测试模板");tapNode("保存");
-            phase("shell-template-saved","","false");tapNode("通用游戏  ↗");tapNode("测试模板");tapNode("自定义按键布局");SystemClock.sleep(500);
-            Rect loaded=bounds(waitNode("A",5000));if(Math.abs(loaded.exactCenterX()-scaled.exactCenterX())>8||Math.abs(loaded.width()-scaled.width())>4)throw new AssertionError("Template did not restore custom layout");
-            phase("shell-template-loaded","","false");tapNode("保存并返回");tapNode("通用游戏  ↗");
+            tapNode("导航主页");layoutCustomization();invokeActivity("finishEditor");
             byte[] png=android.util.Base64.decode(arguments.getString("qrBase64"),android.util.Base64.DEFAULT);
             android.graphics.Bitmap bitmap=android.graphics.BitmapFactory.decodeByteArray(png,0,png.length);
             String qr=(String)Class.forName("app.orbitpad.controller.QrDecoder").getMethod("decodeBitmap",android.graphics.Bitmap.class).invoke(null,bitmap);bitmap.recycle();
@@ -613,10 +675,10 @@ public final class DeviceInstrumentation extends Instrumentation {
             invokeActivity("openEditor");SystemClock.sleep(800);
             // Measure from a known size even when the saved user layout is already enlarged.
             tapNode("A");progress("控件大小",0);key(KeyEvent.KEYCODE_BACK);
-            Rect before=bounds(waitNode("A",5000));tapNode("A");progress("控件大小",80);key(KeyEvent.KEYCODE_BACK);
+            Rect before=bounds(waitNode("A",5000));tapNode("A");progress("控件大小",5000);key(KeyEvent.KEYCODE_BACK);
             Rect after=bounds(waitNode("A",5000));
             if(after.width()<before.width()*1.35f)throw new AssertionError("Live size preview did not resize A");
-            tapNode("LB");progress("控件宽度",150);progress("控件高度",200);key(KeyEvent.KEYCODE_BACK);
+            tapNode("LB");progress("控件宽度",2615);progress("控件高度",2536);key(KeyEvent.KEYCODE_BACK);
             org.json.JSONObject layout=core("{\"op\":\"snapshot\"}").getJSONObject("settings").getJSONObject("layout");
             if(Math.abs(layout.getJSONObject("lb").getDouble("width")-2.1)>.01||Math.abs(layout.getJSONObject("lb").getDouble("height")-2.6)>.01)throw new AssertionError("Independent shoulder dimensions not saved");
             // Restore defaults, then place a vertical brake in free canvas space.
@@ -637,16 +699,31 @@ public final class DeviceInstrumentation extends Instrumentation {
             tapNode("手柄设置");tapNode("手感调节");waitNode("LT / RT 线性油门 / 刹车",5000);phase("racing-feel-settings","","true");key(KeyEvent.KEYCODE_BACK);
             Object gyro=member(activity,"gyro");
             Class<?> gyroClass=gyro.getClass();java.lang.reflect.Method available=gyroClass.getDeclaredMethod("available");available.setAccessible(true);
-            if(!(Boolean)available.invoke(gyro))throw new AssertionError("Test device has no gravity sensor");
-            java.lang.reflect.Method angle=gyroClass.getDeclaredMethod("gravityAngle",float.class,float.class);angle.setAccessible(true);
-            double tilt=Math.toRadians(23.5);float x=(float)(-9.81*Math.sin(tilt)),z=(float)(9.81*Math.cos(tilt));
-            if(Math.abs((Float)angle.invoke(null,x,z)-23.5f)>.01)throw new AssertionError("Gravity X/Z steering angle incorrect");
-            if(Math.abs((Float)angle.invoke(null,-x,z)+23.5f)>.01)throw new AssertionError("Gravity steering sign incorrect");
-            if((Float)angle.invoke(null,0f,9.81f)!=0f||(Float)angle.invoke(null,0f,0f)!=0f)throw new AssertionError("Gravity neutral incorrect");
+            if(!(Boolean)available.invoke(gyro))throw new AssertionError("Test device has no rotation sensor");
+            java.lang.reflect.Method angle=gyroClass.getDeclaredMethod("relativeAngle",float[].class,float[].class);angle.setAccessible(true);
+            double half=Math.toRadians(23.5)/2;float[] zero={1,0,0,0},right={(float)Math.cos(half),0,0,(float)-Math.sin(half)};
+            if(Math.abs((Float)angle.invoke(null,zero,right)-23.5f)>.01)throw new AssertionError("Relative quaternion steering angle incorrect");
+            steeringPresets();
             org.json.JSONObject settings=(org.json.JSONObject)member(activity,"settings");settings.put("gyro_enabled",true);invokeActivity("saveSettings");SystemClock.sleep(300);
             if(!(Boolean)member(gyro,"running"))throw new AssertionError("Gyro listener not registered while controlling");
             org.json.JSONArray controls=new org.json.JSONArray(coreRaw("{\"op\":\"layout\"}"));
-            for(int i=0;i<controls.length();i++)if(controls.getJSONObject(i).getString("id").equals("calibrate"))throw new AssertionError("Manual recenter control still present");
+            boolean recenter=false;for(int i=0;i<controls.length();i++)if(controls.getJSONObject(i).getString("id").equals("calibrate"))recenter=true;
+            if(!recenter)throw new AssertionError("Manual recenter control missing");
+            java.lang.reflect.Method calibrate=gyroClass.getDeclaredMethod("calibrate"),calibrating=gyroClass.getDeclaredMethod("calibrating");calibrate.setAccessible(true);calibrating.setAccessible(true);
+            runOnMainSync(()->{try{calibrate.invoke(gyro);}catch(Exception e){throw new RuntimeException(e);}});
+            if(!(Boolean)calibrating.invoke(gyro))throw new AssertionError("Manual calibration did not start");
+            long deadline=SystemClock.uptimeMillis()+5000;while((Boolean)calibrating.invoke(gyro)&&SystemClock.uptimeMillis()<deadline)SystemClock.sleep(50);
+            if((Boolean)calibrating.invoke(gyro))throw new AssertionError("Stable phone did not finish calibration");
+            phase("racing-gyro-calibrated","","true");
+            // Already enabled: each new controller entry must restart calibration automatically.
+            runOnMainSync(()->{try{java.lang.reflect.Method open=activity.getClass().getDeclaredMethod("openController");open.setAccessible(true);open.invoke(activity);}catch(Exception e){throw new RuntimeException(e);}});
+            SystemClock.sleep(200);
+            if(!(Boolean)calibrating.invoke(gyro))throw new AssertionError("Already enabled gyro skipped startup calibration");
+            org.json.JSONObject during=core("{\"op\":\"snapshot\"}").getJSONObject("state");
+            if(during.getJSONArray("axes").getDouble(0)!=0)throw new AssertionError("Startup calibration emitted steering");
+            SystemClock.sleep(1000);
+            if((Boolean)calibrating.invoke(gyro))throw new AssertionError("Startup calibration did not finish");
+            phase("racing-gyro-startup-calibrated","","true");
             tapNode("手柄设置");SystemClock.sleep(100);
             if((Boolean)member(gyro,"running"))throw new AssertionError("Gyro listener remained registered in settings");
             phase("racing-gyro-settings-neutral","","true");key(KeyEvent.KEYCODE_BACK);
@@ -657,6 +734,25 @@ public final class DeviceInstrumentation extends Instrumentation {
             core(new org.json.JSONObject().put("op","configure").put("settings",original).toString());
             android.content.SharedPreferences.Editor restore=activity.getPreferences(0).edit();if(saved==null)restore.remove("rust_settings");else restore.putString("rust_settings",saved);restore.putString("template_name",templateName);restore.commit();
         }
+    }
+    private void steeringPresets() throws Exception {
+        android.widget.Spinner[] ratio=new android.widget.Spinner[1];
+        runOnMainSync(()->{try{
+            android.widget.LinearLayout page=new android.widget.LinearLayout(activity);
+            java.lang.reflect.Method feel=activity.getClass().getDeclaredMethod("feelSettings",android.widget.LinearLayout.class);feel.setAccessible(true);feel.invoke(activity,page);
+            for(int i=0;i<page.getChildCount();i++)if("陀螺仪转向比".contentEquals(page.getChildAt(i).getContentDescription()==null?"":page.getChildAt(i).getContentDescription()))ratio[0]=(android.widget.Spinner)page.getChildAt(i);
+            if(ratio[0]==null)throw new AssertionError("Steering preset selector missing");
+            ratio[0].setSelection(0);
+        }catch(Exception e){throw new RuntimeException(e);}});waitForIdleSync();
+        if(ratio[0].getCount()!=2||!ratio[0].getItemAtPosition(1).equals("自定义"))throw new AssertionError("Only F1 and custom presets should be offered");
+        // Invoke the selection listener without attaching a second settings page to the window.
+        runOnMainSync(()->{
+            ratio[0].setSelection(0);
+            ratio[0].getOnItemSelectedListener().onItemSelected(ratio[0],null,0,0);
+        });waitForIdleSync();
+        if(core("{\"op\":\"snapshot\"}").getJSONObject("settings").getInt("gyro_range")!=180)throw new AssertionError("F1 steering preset not applied");
+        org.json.JSONObject saved=new org.json.JSONObject(activity.getPreferences(0).getString("rust_settings","{}"));
+        if(saved.getInt("gyro_range")!=180)throw new AssertionError("F1 steering preset not persisted");
     }
     private void nativeGamepad() throws Exception {
         connect(arguments.getString("address"),arguments.getString("code"));
