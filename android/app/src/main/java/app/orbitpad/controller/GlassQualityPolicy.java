@@ -9,6 +9,10 @@ import android.os.PowerManager;
 final class GlassQualityPolicy {
     static final int SIMPLE=0, STANDARD=1, FULL=2;
     static int resolve(MainActivity app) {
+        if(app.theme.material)return SIMPLE;
+        return resolveGlass(app);
+    }
+    static int resolveGlass(MainActivity app) {
         PowerManager power=(PowerManager)app.getSystemService(Context.POWER_SERVICE);
         ActivityManager memory=(ActivityManager)app.getSystemService(Context.ACTIVITY_SERVICE);
         String choice=app.getPreferences(0).getString("glass_quality","auto");
@@ -20,6 +24,10 @@ final class GlassQualityPolicy {
         return Math.max(0,Math.min(3,app.getPreferences(0).getInt("glass_refraction",2)));
     }
     static float refractionStrength(MainActivity app){
+        if(app.getPreferences(0).contains("glass_refraction_strength")){
+            float value=app.getPreferences(0).getFloat("glass_refraction_strength",1);
+            return Float.isNaN(value)?1:Math.max(0,Math.min(1.6f,value));
+        }
         switch(refractionLevel(app)){case 0:return 0;case 1:return .5f;case 3:return 1.6f;default:return 1;}
     }
     private GlassQualityPolicy(){}

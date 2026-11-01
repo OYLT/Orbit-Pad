@@ -2,7 +2,7 @@ package app.orbitpad.controller;
 
 /** Canvas-space transforms shared by linked groups and individual controls. */
 final class LayoutGeometry {
-    static final float LEFT=4, TOP=4, RIGHT=996, BOTTOM=446, MIN=24;
+    static final float LEFT=0, TOP=0, RIGHT=1000, BOTTOM=450, MIN=24;
     static final class Box {
         final float x,y,w,h;
         Box(float x,float y,float w,float h){this.x=x;this.y=y;this.w=w;this.h=h;}

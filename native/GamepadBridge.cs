@@ -26,6 +26,14 @@ internal static class GamepadBridge {
     [DllImport("ViGEmClient.dll", CallingConvention = CallingConvention.Cdecl)] private static extern uint vigem_target_add(IntPtr client, IntPtr target);
     [DllImport("ViGEmClient.dll", CallingConvention = CallingConvention.Cdecl)] private static extern uint vigem_target_remove(IntPtr client, IntPtr target);
     [DllImport("ViGEmClient.dll", CallingConvention = CallingConvention.Cdecl)] private static extern uint vigem_target_x360_update(IntPtr client, IntPtr target, Report report);
+    [UnmanagedFunctionPointer(CallingConvention.StdCall)] private delegate void Feedback(IntPtr c,IntPtr t,byte large,byte small,byte led,IntPtr user);
+    [DllImport("ViGEmClient.dll", CallingConvention=CallingConvention.Cdecl)] private static extern uint vigem_target_x360_register_notification(IntPtr c,IntPtr t,Feedback callback,IntPtr user);
+    [DllImport("ViGEmClient.dll", CallingConvention=CallingConvention.Cdecl)] private static extern void vigem_target_x360_unregister_notification(IntPtr t);
+    private static readonly Feedback feedback=OnFeedback;
+    private static int motorState;
+    private static bool feedbackRegistered;
+    private static Timer feedbackTimer;
+    private static void OnFeedback(IntPtr c,IntPtr t,byte large,byte small,byte led,IntPtr user){Interlocked.Exchange(ref motorState,large|(small<<8));}
     private static readonly object Gate = new object();
     private static IntPtr client, target;
     private static bool added, connected, failed, xboxHeld;
@@ -96,10 +104,21 @@ internal static class GamepadBridge {
             Check(vigem_target_add(client, target), "创建 Xbox 360 手柄失败");
             added = true;
             Apply(new Report());
+            Check(vigem_target_x360_register_notification(client,target,feedback,IntPtr.Zero),"注册游戏震动反馈失败");feedbackRegistered=true;
+            int lastMotor=-1;DateTime lastFeedback=DateTime.MinValue;
+            feedbackTimer=new Timer(delegate(object unused){
+                lock(Gate){
+                    int value=Volatile.Read(ref motorState);
+                    if(value==lastMotor&&(value==0||(DateTime.UtcNow-lastFeedback).TotalMilliseconds<200))return;
+                    lastMotor=value;lastFeedback=DateTime.UtcNow;
+                    Console.WriteLine("RUMBLE:"+(value&255)+","+((value>>8)&255));
+                }
+            },null,0,20);
+            Console.WriteLine("FEEDBACK:READY");
             using (var watchdog = new Timer(delegate(object unused) {
                 lock (Gate) {
                     if (failed || (DateTime.UtcNow - lastMessage).TotalMilliseconds <= 1600) return;
-                    try { Apply(new Report()); }
+                    try { Interlocked.Exchange(ref motorState,0);Apply(new Report()); }
                     catch (Exception error) { failed = true; Console.WriteLine("ERROR:" + error.Message); }
                 }
             }, null, 200, 200)) {
@@ -108,6 +127,7 @@ internal static class GamepadBridge {
                 while ((line = Console.ReadLine()) != null && line != "quit") {
                     lock (Gate) {
                         if (failed) break;
+                        if(line=="feedback:clear"){Interlocked.Exchange(ref motorState,0);continue;}
                         Report report;
                         if (!Parse(line, out report)) {
                             Apply(new Report());
@@ -121,6 +141,8 @@ internal static class GamepadBridge {
         } catch (Exception error) {
             Console.WriteLine("ERROR:" + error.Message); return 1;
         } finally {
+            if(feedbackTimer!=null)feedbackTimer.Dispose();
+            if(feedbackRegistered)vigem_target_x360_unregister_notification(target);
             lock (Gate) {
                 if (added) {
                     try { Apply(new Report()); } catch { }

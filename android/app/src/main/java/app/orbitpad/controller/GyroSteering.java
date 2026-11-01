@@ -3,7 +3,7 @@ package app.orbitpad.controller;
 import android.content.Context;
 import android.hardware.*;
 
-/** Relative screen-normal rotation, calibrated each time controller input starts. */
+/** Relative screen-normal rotation; calibration is armed only by an explicit user action. */
 final class GyroSteering implements SensorEventListener {
     interface Listener { void angle(float degrees); }
     private final SensorManager manager;
@@ -20,10 +20,11 @@ final class GyroSteering implements SensorEventListener {
         this.listener=listener;
     }
     boolean available(){return sensor!=null;}
-    void start(){if(!running&&available()){calibrate();last=0;running=manager.registerListener(this,sensor,SensorManager.SENSOR_DELAY_GAME);}}
-    void stop(){manager.unregisterListener(this);running=false;rotation.reset();}
-    void calibrate(){rotation.reset();listener.angle(0);}
-    boolean calibrating(){return running&&!rotation.calibrated;}
+    boolean beginCalibration(){stop();if(!available())return false;rotation.beginCalibration();listener.angle(0);last=0;running=manager.registerListener(this,sensor,SensorManager.SENSOR_DELAY_GAME);return running;}
+    void stop(){if(running)manager.unregisterListener(this);running=false;rotation.reset();}
+    boolean calibrating(){return running&&rotation.armed&&!rotation.calibrated;}
+    boolean calibrated(){return running&&rotation.calibrated;}
+    boolean requiresCalibration(){return !running||!rotation.armed;}
     @Override public void onAccuracyChanged(Sensor sensor,int accuracy){}
     @Override public void onSensorChanged(SensorEvent event){
         if(!running||event.sensor!=sensor)return;
@@ -42,10 +43,12 @@ final class GyroSteering implements SensorEventListener {
         private final float[] zero=new float[4];
         private long stableSince;
         private boolean reference;
-        boolean calibrated;
+        boolean calibrated,armed;
         private float previous,total;
-        void reset(){reference=false;calibrated=false;stableSince=0;previous=total=0;}
+        void reset(){armed=false;reference=false;calibrated=false;stableSince=0;previous=total=0;}
+        void beginCalibration(){reset();armed=true;}
         float sample(float[] q,long timestamp){
+            if(!armed)return 0;
             float norm=0;for(float value:q){if(!Float.isFinite(value)){reset();return 0;}norm+=value*value;}
             if(q.length!=4||Math.abs(norm-1)>0.01f){reset();return 0;}
             if(!calibrated){

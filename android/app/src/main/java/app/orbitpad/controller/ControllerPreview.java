@@ -9,14 +9,14 @@ import org.json.JSONObject;
 
 /** Each card owns an immutable resolved layout; drawing never touches the active controller. */
 final class ControllerPreview extends View {
+    private final MainActivity app;
     private final JSONArray layout;
-    private final boolean gyro;
     private final Paint paint=new Paint(Paint.ANTI_ALIAS_FLAG|Paint.FILTER_BITMAP_FLAG);
     private final Drawable icon;
     private Bitmap fallbackBlur;
     private float softness;
     ControllerPreview(MainActivity app,JSONObject settings,String name){
-        super(app);layout=app.layoutFor(settings);gyro=settings.optBoolean("gyro_enabled");icon=app.getDrawable(R.drawable.ic_launcher);
+        super(app);this.app=app;layout=app.layoutFor(settings);icon=app.getDrawable(R.drawable.ic_launcher);
         setContentDescription(name+" · 已保存手柄样式");setImportantForAccessibility(View.IMPORTANT_FOR_ACCESSIBILITY_YES);
     }
     void softness(float value){softness=Math.max(0,Math.min(1,value));if(Build.VERSION.SDK_INT<31)invalidate();}
@@ -37,14 +37,14 @@ final class ControllerPreview extends View {
         canvas.save();canvas.translate(ox,oy);canvas.scale(scale,scale);paint.setAlpha(255);
         for(int i=0;i<layout.length();i++){
             JSONObject b=layout.optJSONObject(i);if(b==null)continue;String id=b.optString("id");
-            if(!b.optBoolean("visible",true)||id.equals("settings")||(id.equals("calibrate")&&!gyro))continue;
+            if(!b.optBoolean("visible",true)||id.equals("settings"))continue;
             float x=(float)b.optDouble("x"),y=(float)b.optDouble("y"),w=(float)b.optDouble("width"),h=(float)b.optDouble("height");
             boolean stick=id.equals("move")||id.equals("look");
-            paint.setColor(0xff37313e);paint.setStyle(Paint.Style.FILL);float corner=stick?Math.min(w,h)/2:Math.min(Math.min(w,h)/2,id.length()==1?200:18);
+            paint.setColor(app.themeColor(0xff37313e));paint.setStyle(Paint.Style.FILL);float corner=stick?Math.min(w,h)/2:Math.min(Math.min(w,h)/2,id.length()==1?200:18);
             canvas.drawRoundRect(x-w/2,y-h/2,x+w/2,y+h/2,corner,corner,paint);
-            if(stick){paint.setColor(0xff938f99);paint.setStyle(Paint.Style.STROKE);paint.setStrokeWidth(1);canvas.drawCircle(x,y,Math.min(w,h)/2-1,paint);paint.setStyle(Paint.Style.FILL);paint.setColor(0xffd0bcff);canvas.drawCircle(x,y,Math.min(w,h)*.19f,paint);}
+            if(stick){paint.setColor(app.themeColor(0xff938f99));paint.setStyle(Paint.Style.STROKE);paint.setStrokeWidth(1);canvas.drawCircle(x,y,Math.min(w,h)/2-1,paint);paint.setStyle(Paint.Style.FILL);paint.setColor(app.themeColor(0xffd0bcff));canvas.drawCircle(x,y,Math.min(w,h)*.19f,paint);}
             if(id.equals("xbox")){int d=Math.round(Math.min(w,h)*.72f);icon.setBounds(Math.round(x-d/2f),Math.round(y-d/2f),Math.round(x+d/2f),Math.round(y+d/2f));icon.draw(canvas);}
-            else{paint.setColor(stick?0xff381e72:0xffe6e0e9);paint.setTextAlign(Paint.Align.CENTER);paint.setTypeface(Typeface.create("sans-serif-medium",0));paint.setTextSize(Math.min(22,Math.min(w,h)*.32f));canvas.drawText(b.optString("label"),x,y-(paint.ascent()+paint.descent())/2,paint);}
+            else{paint.setColor(stick?app.themeColor(0xff381e72):app.themeColor(0xffe6e0e9));paint.setTextAlign(Paint.Align.CENTER);paint.setTypeface(Typeface.create("sans-serif-medium",0));paint.setTextSize(Math.min(22,Math.min(w,h)*.32f));canvas.drawText(b.optString("label"),x,y-(paint.ascent()+paint.descent())/2,paint);}
         }canvas.restore();
     }
     // A small, cached separable Gaussian keeps the transition available on Android 8–11.

@@ -33,6 +33,13 @@ test('real Windows XInput reads analog reports, watchdog neutral and device remo
   }
   assert(index >= 0, 'a Windows XInput slot must expose the exact native report');
   t.diagnostic(`Verified the virtual Xbox 360 controller at XInput slot ${index}.`);
+  const feedback=[];bridge.on('rumble',value=>feedback.push(value));
+  const rumble=await run(probe,[String(index),'32768','16384','600'],{windowsHide:true});assert.equal(rumble.stdout.trim(),'0');
+  for(let i=0;i<60&&!feedback.some(v=>v.large===128&&v.small===64);i++)await delay(20);
+  assert(feedback.some(v=>v.large===128&&v.small===64),'real XInputSetState reaches ViGEm feedback callback');
+  await delay(240);assert(feedback.filter(v=>v.large===128&&v.small===64).length>=2,'held motor state has renewable feedback');
+  bridge.resetFeedback();await delay(70);assert.equal(feedback.at(-1).large,0);assert.equal(feedback.at(-1).small,0);
+  t.diagnostic('Verified real XInput motor feedback, renewals and neutral reset.');
   // Stop parent heartbeats while the child remains alive to exercise its own watchdog.
   clearInterval(bridge.keepAlive);
   await delay(2000);

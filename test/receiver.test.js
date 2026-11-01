@@ -16,11 +16,11 @@ async function setup(t) {
   const post = (path, data) => fetch(`${base}${path}`, { method: 'POST', headers: { 'Content-Type': 'application/json', Origin: base }, body: JSON.stringify(data) });
   const host = await (await get('/api/host')).json();
   const pair = async () => (await (await post('/api/pair', { code: host.pairCode, device: 'Test Phone' })).json()).token;
-  async function connect(token) {
+  async function connect(token, feedback = false) {
     const ws = new WebSocket(`ws://127.0.0.1:${port}/ws`, { origin: base });
     await once(ws, 'open');
     const response = once(ws, 'message');
-    ws.send(JSON.stringify({ type: 'auth', token }));
+    ws.send(JSON.stringify({ type: 'auth', token, feedback }));
     const [raw] = await response;
     assert.equal(JSON.parse(raw).type, 'authenticated');
     return ws;
@@ -251,4 +251,17 @@ test('browser frontend is removed while native pairing and QR APIs remain availa
   }
   assert.equal((await get('/api/status')).status,200);
   assert.equal((await get('/api/host/qr?format=png')).status,200);
+});
+
+test('game rumble goes only to an opted-in active client and pauses at zero', async t=>{
+  const { input, pair, connect, post }=await setup(t);const ws=await connect(await pair(),true);t.after(()=>ws.close());
+  const messages=[];ws.on('message',raw=>messages.push(JSON.parse(raw)));
+  input.emit('rumble',{large:128,small:64});await waitFor(()=>messages.some(m=>m.type==='rumble'&&m.large===128&&m.small===64&&m.duration===600));
+  await post('/api/host/pause',{paused:true});await waitFor(()=>messages.some(m=>m.type==='rumble'&&m.large===0&&m.small===0));
+  messages.length=0;input.emit('rumble',{large:255,small:255});await waitFor(()=>messages.some(m=>m.type==='rumble'));assert(messages.filter(m=>m.type==='rumble').every(m=>m.large===0&&m.small===0));
+  messages.length=0;input.emit('rumble',{large:-1,small:256});await new Promise(r=>setTimeout(r,40));assert(!messages.some(m=>m.type==='rumble'));
+});
+test('legacy clients never receive the new rumble message', async t=>{
+  const { input,pair,connect }=await setup(t);const ws=await connect(await pair());t.after(()=>ws.close());const messages=[];ws.on('message',raw=>messages.push(JSON.parse(raw)));
+  input.emit('rumble',{large:255,small:128});await new Promise(r=>setTimeout(r,60));assert(!messages.some(m=>m.type==='rumble'));
 });

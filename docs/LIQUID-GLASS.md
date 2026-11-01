@@ -1,5 +1,9 @@
 # Android Dock Liquid Glass 实现
 
+## 主题页与连续折射（当前）
+
+玻璃面板已从设置页移至「主题 → 液态玻璃」二级设置。折射强度使用 0–160% 连续滑杆（0.1% 步进），拖动期间直接更新真实 Dock 与页内同源渲染预览，显示精确百分比并自动保存；原四档偏好在首次使用时映射到 0 / 50 / 100 / 160%。预览也可在 Material 3 模式下独立查看。选择 Material 3 后，主导航使用无玻璃的色调表面与选中指示器。其余较早章节的四档控件和设置入口描述为历史记录。详见 [主题与外观](THEMES.md)。
+
 ## 当前版本：AndroidLiquidGlass 源码适配
 
 当前 Dock 采用 [Kyant0/AndroidLiquidGlass](https://github.com/Kyant0/AndroidLiquidGlass) 的实际 AGSL 源码和 `LiquidBottomTabs` 分层方案，上游固定版本 `65ab177e90e5c1d8c62e70cf7755841982da65f6`。这是移植到 Java View / RenderNode 的实现，不是引入 Compose 依赖。源码映射、改动说明和许可证见 `third_party/AndroidLiquidGlass/`。

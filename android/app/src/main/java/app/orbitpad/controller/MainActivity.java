@@ -4,6 +4,7 @@ import android.app.Activity;
 import android.app.AlertDialog;
 import android.content.pm.ActivityInfo;
 import android.content.res.ColorStateList;
+import android.content.res.Configuration;
 import android.content.Intent;
 import android.bluetooth.BluetoothAdapter;
 import android.bluetooth.BluetoothDevice;
@@ -34,8 +35,17 @@ import java.util.ArrayList;
 
 /** Native Android widgets and drawing. All controller behavior is delegated to Rust. */
 public final class MainActivity extends Activity {
-    private static final int BG=0xff141218, FG=0xffe6e0e9, PRIMARY=0xffd0bcff,
+    private int BG=0xff141218, FG=0xffe6e0e9, PRIMARY=0xffd0bcff,
         MUTED=0xffcac4d0, SURFACE=0xff2b2930, OUTLINE=0xff938f99;
+    ThemePalette theme;
+    private WallpaperPalette wallpaperPalette;
+    private final java.util.concurrent.ExecutorService colorWorker=java.util.concurrent.Executors.newSingleThreadExecutor();
+    int themeColor(int color){return theme==null?color:theme.color(color);}
+    void loadTheme(){
+        theme=new ThemePalette(this,getPreferences(0));setTheme(theme.dark?R.style.AppTheme:R.style.AppThemeLight);theme.applyPlatform(this);
+        BG=theme.background;FG=theme.onSurface;PRIMARY=theme.primary;MUTED=theme.muted;SURFACE=theme.surfaceHigh;OUTLINE=theme.outline;
+    }
+    void applyAppTheme(){ThemePalette previous=theme;loadTheme();if(settingsDialog!=null&&settingsDialog.getWindow()!=null){ThemeDialogBuilder.recolor(settingsDialog.getWindow().getDecorView(),previous,theme);ThemeDialogBuilder.style(this,settingsDialog);}if(gyroCalibrationMenu!=null)ThemeDialogBuilder.recolor(gyroCalibrationMenu,previous,theme);if(shell!=null)shell.refreshTheme();if(pad!=null){pad.setBackgroundColor(BG);pad.refresh();}if(status!=null)status.setTextColor(MUTED);if(layoutEditor!=null)layoutEditor.refreshTheme();if(controllerVisible||editing)immersive();else edgeToEdge();}
     private final Handler handler=new Handler(Looper.getMainLooper());
     private TextView status;
     private PadView pad;
@@ -46,9 +56,40 @@ public final class MainActivity extends Activity {
     private LayoutEditor layoutEditor;
     private AlertDialog settingsDialog;
     private GyroSteering gyro;
+    private GameRumble gameRumble;
+    private GyroCalibrationMenu gyroCalibrationMenu;
+    private boolean gyroEligible,gyroNeedsCalibration=true,gyroPromptDismissed;
+    private boolean gyroCanControl(){return resumed&&controllerVisible&&snapshot.optBoolean("enabled")&&settings.optBoolean("gyro_enabled")&&gyro!=null&&gyro.available();}
+    private void hideGyroCalibrationMenu(){
+        if(gyroCalibrationMenu!=null){android.view.ViewParent parent=gyroCalibrationMenu.getParent();if(parent instanceof android.view.ViewGroup)((android.view.ViewGroup)parent).removeView(gyroCalibrationMenu);gyroCalibrationMenu=null;}
+    }
+    private void resetGyroCalibration(){
+        if(gyro!=null)gyro.stop();gyroEligible=false;gyroNeedsCalibration=true;gyroPromptDismissed=false;hideGyroCalibrationMenu();
+    }
+    private void showGyroCalibrationMenu(){
+        if(gyroCalibrationMenu!=null||pad==null)return;
+        gyroCalibrationMenu=new GyroCalibrationMenu(this,()->{
+            snapshot=call("snapshot");if(!gyroCanControl())return;
+            if(gameRumble!=null)gameRumble.stop();
+            if(gyro.beginCalibration()){gyroNeedsCalibration=false;gyroCalibrationMenu.calibrating();}
+            else gyroCalibrationMenu.failed();
+        },()->dismissGyroCalibration());
+        int width=Math.min(dp(350),Math.max(dp(220),getResources().getDisplayMetrics().widthPixels-dp(32)));
+        pad.addView(gyroCalibrationMenu,new FrameLayout.LayoutParams(width,-2,Gravity.CENTER));
+    }
+    private void dismissGyroCalibration(){
+        if(gyro!=null)gyro.stop();gyroNeedsCalibration=true;gyroPromptDismissed=true;hideGyroCalibrationMenu();
+        JSONObject zero=command("gyro");put(zero,"angle",0);snapshot=call(zero);
+    }
+    private void requestGyroCalibration(){resetGyroCalibration();snapshot=call("release");syncGyro();}
     private void syncGyro(){
         if(gyro==null)return;
-        if(resumed&&controllerVisible&&snapshot.optBoolean("enabled")&&settings.optBoolean("gyro_enabled"))gyro.start();else gyro.stop();
+        if(!gyroCanControl()){if(gyroEligible)resetGyroCalibration();return;}
+        gyroEligible=true;
+        if(gyroNeedsCalibration){if(!gyroPromptDismissed)showGyroCalibrationMenu();return;}
+        if(gyro.requiresCalibration()){resetGyroCalibration();gyroEligible=true;showGyroCalibrationMenu();return;}
+        if(gyro.calibrating()){if(gyroCalibrationMenu!=null)gyroCalibrationMenu.calibrating();}
+        else if(gyro.calibrated()&&gyroCalibrationMenu!=null){hideGyroCalibrationMenu();Toast.makeText(this,"陀螺仪校准完成",Toast.LENGTH_SHORT).show();}
     }
     private final Runnable poll=new Runnable() { public void run() {
         if (!resumed) return;
@@ -63,9 +104,10 @@ public final class MainActivity extends Activity {
         if (shell!=null && !controllerVisible && !editing) shell.update(snapshot);
         if (status!=null && controllerVisible) {
             String latency=snapshot.isNull("rtt") ? "" : " · "+snapshot.optLong("rtt")+" ms";
-            status.setText(gyro!=null&&gyro.calibrating()?"陀螺仪校准中 · 保持手机稳定…":"Orbit Pad  ·  "+snapshot.optString("message")+latency);
+            status.setText(gyro!=null&&gyro.calibrating()?"陀螺仪校准中 · 保持手机稳定…":settings.optBoolean("gyro_enabled")&&gyroNeedsCalibration?(gyroPromptDismissed?"陀螺仪未校准 · 可在设置中开始":"陀螺仪待校准 · 请点击开始校准"):"Orbit Pad  ·  "+snapshot.optString("message")+latency);
         }
         syncGyro();
+        if(gameRumble!=null)gameRumble.update(resumed&&controllerVisible&&snapshot.optBoolean("enabled")&&settings.optBoolean("game_rumble")&&!gyro.calibrating(),snapshot.optJSONArray("rumble"));
         if (pad!=null) pad.refresh();
         handler.postDelayed(this,50);
     }};
@@ -79,27 +121,28 @@ public final class MainActivity extends Activity {
     }
     int dp(float value) {return Math.round(value*getResources().getDisplayMetrics().density);}
     GradientDrawable rounded(int color,int border,int radius) {
-        GradientDrawable shape=new GradientDrawable();shape.setColor(color);shape.setCornerRadius(dp(radius));
-        if(border!=0)shape.setStroke(dp(1),border);return shape;
+        GradientDrawable shape=new GradientDrawable();shape.setColor(themeColor(color));shape.setCornerRadius(dp(radius));
+        if(border!=0)shape.setStroke(dp(1),themeColor(border));return shape;
     }
     TextView text(String value,int size,int color) {
-        TextView view=new TextView(this);view.setText(value);view.setTextSize(size);view.setTextColor(color);view.setLineSpacing(dp(4),1);return view;
+        TextView view=new TextView(this);view.setText(value);view.setTextSize(size);view.setTextColor(themeColor(color));view.setLineSpacing(dp(4),1);return view;
     }
     void add(LinearLayout parent,View child,int top) {
-        LinearLayout.LayoutParams p=new LinearLayout.LayoutParams(-1,-2);p.topMargin=dp(top);parent.addView(child,p);
+        LinearLayout.LayoutParams p=new LinearLayout.LayoutParams(-1,-2);p.topMargin=dp(top);parent.addView(child,p);ThemeDialogBuilder.widgets(child,theme);
     }
     Button button(String label) {
-        Button b=new Button(this);b.setText(label);b.setAllCaps(false);b.setTextColor(0xff381e72);b.setTextSize(14);
+        Button b=new Button(this);b.setText(label);b.setAllCaps(false);b.setTextColor(theme.onPrimary);b.setTextSize(14);
         b.setMinHeight(dp(50));b.setPadding(dp(20),dp(10),dp(20),dp(10));
-        b.setBackground(new RippleDrawable(ColorStateList.valueOf(0x33381e72),rounded(PRIMARY,0,28),null));return b;
+        b.setBackground(new RippleDrawable(ColorStateList.valueOf((theme.onPrimary&0xffffff)|0x33000000),rounded(PRIMARY,0,28),null));return b;
     }
     EditText field(String hint) {
         EditText e=new EditText(this);e.setSingleLine(true);e.setTextColor(FG);e.setTextSize(16);e.setHintTextColor(OUTLINE);e.setHint(hint);
+        e.setImeOptions(e.getImeOptions()|android.view.inputmethod.EditorInfo.IME_FLAG_NO_EXTRACT_UI);
         e.setMinHeight(dp(56));e.setPadding(dp(16),dp(16),dp(16),dp(16));e.setBackground(rounded(BG,OUTLINE,12));
         e.setOnFocusChangeListener((v,focus)->e.setBackground(rounded(BG,focus?PRIMARY:OUTLINE,12)));return e;
     }
     @Override public void onCreate(Bundle state) {
-        super.onCreate(state);edgeToEdge();
+        loadTheme();super.onCreate(state);wallpaperPalette=new WallpaperPalette(this,handler);edgeToEdge();gameRumble=new GameRumble(this);
         gyro=new GyroSteering(this,angle->{JSONObject c=command("gyro");put(c,"angle",angle);snapshot=call(c);if(pad!=null)pad.refresh();});
         try {
             String saved=getPreferences(0).getString("rust_settings",null);
@@ -109,11 +152,17 @@ public final class MainActivity extends Activity {
         if(state!=null&&shell!=null)shell.restoreState(state);
     }
     @Override protected void onSaveInstanceState(Bundle state){if(shell!=null)shell.saveState(state);super.onSaveInstanceState(state);}
+    @Override public void onConfigurationChanged(Configuration configuration){
+        super.onConfigurationChanged(configuration);
+        ThemePalette updated=new ThemePalette(this,getPreferences(0));if(!updated.sameColors(theme))applyAppTheme();
+        if(controllerVisible||editing)immersive();else if(shell!=null){edgeToEdge();shell.onConfigurationChanged();}
+    }
     private void showConnection(String error) {
         disconnectTransport();showShell(1,error);
     }
     private void showShell(int page,String error) {
-        if(gyro!=null)gyro.stop();
+        if(gameRumble!=null)gameRumble.stop();
+        resetGyroCalibration();
         controllerVisible=false;editing=false;layoutEditor=null;pad=null;status=null;
         if(settingsDialog!=null)settingsDialog.dismiss();
         snapshot=call("release");JSONObject c=command("settings");put(c,"open",true);snapshot=call(c);
@@ -137,6 +186,20 @@ public final class MainActivity extends Activity {
     @Override protected void onActivityResult(int request,int result,Intent data){
         super.onActivityResult(request,result,data);
         if(request==40&&result==RESULT_OK&&data!=null)connectQr(data.getStringExtra("qr"));
+        if(request==72&&result==RESULT_OK&&data!=null&&data.getData()!=null)readWallpaperImage(data.getData());
+    }
+    void refreshWallpaperPalette(){if(wallpaperPalette!=null)wallpaperPalette.refresh();}
+    void chooseWallpaperImage(){Intent pick=new Intent(Intent.ACTION_OPEN_DOCUMENT);pick.setType("image/*");pick.addCategory(Intent.CATEGORY_OPENABLE);startActivityForResult(pick,72);}
+    private void readWallpaperImage(android.net.Uri uri){
+        colorWorker.execute(()->{try{
+            android.graphics.BitmapFactory.Options bounds=new android.graphics.BitmapFactory.Options();bounds.inJustDecodeBounds=true;
+            try(java.io.InputStream input=getContentResolver().openInputStream(uri)){android.graphics.BitmapFactory.decodeStream(input,null,bounds);}
+            android.graphics.BitmapFactory.Options options=new android.graphics.BitmapFactory.Options();while(Math.max(bounds.outWidth,bounds.outHeight)/Math.max(1,options.inSampleSize)>512)options.inSampleSize=options.inSampleSize==0?2:options.inSampleSize*2;
+            android.graphics.Bitmap bitmap;try(java.io.InputStream input=getContentResolver().openInputStream(uri)){bitmap=android.graphics.BitmapFactory.decodeStream(input,null,options);}
+            if(bitmap==null)throw new IllegalArgumentException("图片无法读取");
+            int seed;try{if(Build.VERSION.SDK_INT>=27)seed=WallpaperPalette.seed(android.app.WallpaperColors.fromBitmap(bitmap));else seed=bitmap.getPixel(bitmap.getWidth()/2,bitmap.getHeight()/2);}finally{bitmap.recycle();}
+            int selected=seed;handler.post(()->{if(isFinishing()||isDestroyed())return;getPreferences(0).edit().putInt("wallpaper_seed",selected).putString("wallpaper_seed_source","image").putBoolean("monet_dynamic",true).putString("app_design","material3").apply();applyAppTheme();});
+        }catch(Exception error){handler.post(()->Toast.makeText(this,"无法读取壁纸图片，请重试",Toast.LENGTH_LONG).show());}});
     }
     void connectQr(String raw){
         JSONObject c=command("parse_qr");put(c,"value",raw);JSONObject pair=call(c);
@@ -151,7 +214,7 @@ public final class MainActivity extends Activity {
             ArrayList<BluetoothDevice> devices=new ArrayList<>(adapter.getBondedDevices());
             if(devices.isEmpty()){if(shell!=null)shell.error("尚无已配对设备，请先打开系统蓝牙配对");return;}
             String[] names=new String[devices.size()];for(int i=0;i<names.length;i++){BluetoothDevice d=devices.get(i);names[i]=(d.getName()==null?"蓝牙设备":d.getName())+" · "+d.getAddress();}
-            new AlertDialog.Builder(this).setTitle("选择运行 Orbit Pad 接收端的电脑").setItems(names,(dialog,index)->{
+            new ThemeDialogBuilder(this).setTitle("选择运行 Orbit Pad 接收端的电脑").setItems(names,(dialog,index)->{
                 disconnectTransport();
                 try{bluetooth=new BluetoothProxy(devices.get(index));startConnection("127.0.0.1:"+bluetooth.port(),"","bluetooth");}
                 catch(Exception e){if(shell!=null)shell.error("蓝牙连接启动失败："+e.getMessage());}
@@ -175,30 +238,55 @@ public final class MainActivity extends Activity {
         window.clearFlags(WindowManager.LayoutParams.FLAG_TRANSLUCENT_STATUS|WindowManager.LayoutParams.FLAG_TRANSLUCENT_NAVIGATION|WindowManager.LayoutParams.FLAG_FULLSCREEN);
         window.setStatusBarColor(android.graphics.Color.TRANSPARENT);
         window.setNavigationBarColor(android.graphics.Color.TRANSPARENT);
+        boolean landscape=getResources().getConfiguration().orientation==Configuration.ORIENTATION_LANDSCAPE;
+        if(Build.VERSION.SDK_INT>=28){
+            WindowManager.LayoutParams attributes=window.getAttributes();
+            attributes.layoutInDisplayCutoutMode=landscape&&Build.VERSION.SDK_INT>=30?WindowManager.LayoutParams.LAYOUT_IN_DISPLAY_CUTOUT_MODE_ALWAYS:WindowManager.LayoutParams.LAYOUT_IN_DISPLAY_CUTOUT_MODE_SHORT_EDGES;
+            window.setAttributes(attributes);
+        }
         if(Build.VERSION.SDK_INT>=28)window.setNavigationBarDividerColor(android.graphics.Color.TRANSPARENT);
         if(Build.VERSION.SDK_INT>=29){window.setNavigationBarContrastEnforced(false);window.setStatusBarContrastEnforced(false);}
         if(Build.VERSION.SDK_INT>=30){
             window.getDecorView().setSystemUiVisibility(0);
             window.setDecorFitsSystemWindows(false);
             WindowInsetsController controller=window.getInsetsController();
-            if(controller!=null){controller.show(WindowInsets.Type.systemBars());controller.setSystemBarsAppearance(0,WindowInsetsController.APPEARANCE_LIGHT_STATUS_BARS|WindowInsetsController.APPEARANCE_LIGHT_NAVIGATION_BARS);}
-        }else window.getDecorView().setSystemUiVisibility(View.SYSTEM_UI_FLAG_LAYOUT_STABLE|View.SYSTEM_UI_FLAG_LAYOUT_FULLSCREEN|View.SYSTEM_UI_FLAG_LAYOUT_HIDE_NAVIGATION);
+            if(controller!=null){
+                controller.show(WindowInsets.Type.navigationBars());
+                if(landscape)controller.hide(WindowInsets.Type.statusBars());else controller.show(WindowInsets.Type.statusBars());
+                controller.setSystemBarsBehavior(WindowInsetsController.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE);
+                controller.setSystemBarsAppearance(theme.dark?0:WindowInsetsController.APPEARANCE_LIGHT_STATUS_BARS|WindowInsetsController.APPEARANCE_LIGHT_NAVIGATION_BARS,WindowInsetsController.APPEARANCE_LIGHT_STATUS_BARS|WindowInsetsController.APPEARANCE_LIGHT_NAVIGATION_BARS);
+            }
+        }else window.getDecorView().setSystemUiVisibility(View.SYSTEM_UI_FLAG_LAYOUT_STABLE|View.SYSTEM_UI_FLAG_LAYOUT_FULLSCREEN|View.SYSTEM_UI_FLAG_LAYOUT_HIDE_NAVIGATION|(landscape?View.SYSTEM_UI_FLAG_FULLSCREEN|View.SYSTEM_UI_FLAG_IMMERSIVE_STICKY:0)|(theme.dark?0:View.SYSTEM_UI_FLAG_LIGHT_STATUS_BAR|View.SYSTEM_UI_FLAG_LIGHT_NAVIGATION_BAR));
     }
     private void immersive() {
+        android.view.Window window=getWindow();
+        if(Build.VERSION.SDK_INT>=28){
+            WindowManager.LayoutParams attributes=window.getAttributes();
+            attributes.layoutInDisplayCutoutMode=Build.VERSION.SDK_INT>=30?WindowManager.LayoutParams.LAYOUT_IN_DISPLAY_CUTOUT_MODE_ALWAYS:WindowManager.LayoutParams.LAYOUT_IN_DISPLAY_CUTOUT_MODE_SHORT_EDGES;
+            window.setAttributes(attributes);
+        }
+        if(Build.VERSION.SDK_INT>=30){
+            window.setDecorFitsSystemWindows(false);
+            WindowInsetsController controller=window.getInsetsController();
+            if(controller!=null){controller.setSystemBarsAppearance(theme.dark?0:WindowInsetsController.APPEARANCE_LIGHT_STATUS_BARS|WindowInsetsController.APPEARANCE_LIGHT_NAVIGATION_BARS,WindowInsetsController.APPEARANCE_LIGHT_STATUS_BARS|WindowInsetsController.APPEARANCE_LIGHT_NAVIGATION_BARS);controller.hide(WindowInsets.Type.systemBars());controller.setSystemBarsBehavior(WindowInsetsController.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE);}
+        }
         getWindow().getDecorView().setSystemUiVisibility(View.SYSTEM_UI_FLAG_IMMERSIVE_STICKY|View.SYSTEM_UI_FLAG_FULLSCREEN|View.SYSTEM_UI_FLAG_HIDE_NAVIGATION|View.SYSTEM_UI_FLAG_LAYOUT_FULLSCREEN|View.SYSTEM_UI_FLAG_LAYOUT_HIDE_NAVIGATION|View.SYSTEM_UI_FLAG_LAYOUT_STABLE);
     }
     void openController() {
-        if(gyro!=null)gyro.stop();
+        if(gameRumble!=null)gameRumble.stop();
+        resetGyroCalibration();
         editing=false;layoutEditor=null;controllerVisible=true;shell=null;JSONObject c=command("settings");put(c,"open",false);snapshot=call(c);setRequestedOrientation(ActivityInfo.SCREEN_ORIENTATION_SENSOR_LANDSCAPE);
         getWindow().addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);immersive();pad=new PadView();setContentView(pad);
     }
     void saveSettings() {
+        if(gameRumble!=null)gameRumble.stop();
         JSONObject c=command("configure");put(c,"settings",settings);JSONObject result=call(c);
         if(result.has("error")){Toast.makeText(this,result.optString("error"),Toast.LENGTH_LONG).show();return;}
         getPreferences(0).edit().putString("rust_settings",settings.toString()).apply();snapshot=result;if(pad!=null)pad.requestLayout();
     }
     void openEditor(){
-        if(gyro!=null)gyro.stop();controllerVisible=false;editing=true;shell=null;
+        if(gameRumble!=null)gameRumble.stop();
+        resetGyroCalibration();controllerVisible=false;editing=true;shell=null;
         JSONObject c=command("settings");put(c,"open",true);snapshot=call(c);
         setRequestedOrientation(ActivityInfo.SCREEN_ORIENTATION_SENSOR_LANDSCAPE);immersive();
         getWindow().addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);
@@ -211,12 +299,13 @@ public final class MainActivity extends Activity {
             JSONArray templates=new JSONArray(getPreferences(0).getString("templates_v1","[]"));JSONObject chosen=null;
             for(int i=0;i<templates.length();i++){JSONObject item=templates.optJSONObject(i);if(item!=null&&name.equals(item.optString("name"))&&(chosen==null||active.equals(item.optString("id"))))chosen=item;}
             if(chosen!=null){put(chosen,"settings",new JSONObject(settings.toString()));getPreferences(0).edit().putString("templates_v1",templates.toString()).putString("active_template_id",chosen.optString("id")).apply();return;}
-            String[] names={"通用游戏","竞速驾驶","平台跳跃"},ids={"general","racing","platform"};
+            String[] names={"通用游戏","竞速驾驶","平台跳跃","极限竞速：地平线"},ids={"general","racing","platform","forza"};
             for(int i=0;i<names.length;i++)if(name.equals(names[i])){JSONObject saved=new JSONObject(getPreferences(0).getString("preset_layouts_v1","{}"));put(saved,ids[i],new JSONObject(settings.toString()));getPreferences(0).edit().putString("preset_layouts_v1",saved.toString()).putString("active_template_id",ids[i]).apply();break;}
         }catch(Exception error){Toast.makeText(this,"布局已保存在当前手柄，可另存为新模板",Toast.LENGTH_SHORT).show();}
     }
     void refreshPad(){if(pad!=null)pad.refresh();}
-    float padUnit(){return pad==null?1:Math.min((pad.getWidth()-pad.getPaddingLeft()-pad.getPaddingRight())/1000f,(pad.getHeight()-pad.getPaddingTop()-pad.getPaddingBottom())/450f);}
+    float padScaleX(){return pad==null?1:pad.getWidth()/1000f;}
+    float padScaleY(){return pad==null?1:pad.getHeight()/450f;}
     JSONArray layoutFor(JSONObject config){
         JSONObject c=command("preview_layout");put(c,"settings",config);
         try{return new JSONArray(NativeBridge.call(c.toString()));}catch(Exception error){throw new IllegalStateException("模板预览无效",error);}
@@ -230,13 +319,13 @@ public final class MainActivity extends Activity {
             JSONArray all=new JSONArray(NativeBridge.call(command("layout").toString()));ArrayList<String> ids=new ArrayList<>(),labels=new ArrayList<>();
             for(int i=0;i<all.length();i++){JSONObject p=all.getJSONObject(i);if(!p.optString("id").equals("settings")){ids.add(p.optString("id"));labels.add(p.optString("description"));}}
             boolean[] visible=new boolean[ids.size()];for(int i=0;i<visible.length;i++)visible[i]=!placement(ids.get(i)).optBoolean("hidden");
-            new AlertDialog.Builder(this).setTitle("显示控件").setMultiChoiceItems(labels.toArray(new String[0]),visible,(d,index,on)->{put(placement(ids.get(index)),"hidden",!on);saveSettings();})
+            new ThemeDialogBuilder(this).setTitle("显示控件").setMultiChoiceItems(labels.toArray(new String[0]),visible,(d,index,on)->{put(placement(ids.get(index)),"hidden",!on);saveSettings();})
                 .setPositiveButton("完成",null).show();
         }catch(Exception e){Toast.makeText(this,e.getMessage(),Toast.LENGTH_LONG).show();}
     }
     private void editControl(String id){if(layoutEditor!=null)layoutEditor.edit(id);}
     void showSettings() {
-        if(settingsDialog!=null)return;if(gyro!=null)gyro.stop();JSONObject c=command("settings");put(c,"open",true);snapshot=call(c);
+        if(settingsDialog!=null)return;if(gameRumble!=null)gameRumble.stop();resetGyroCalibration();JSONObject c=command("settings");put(c,"open",true);snapshot=call(c);
         LinearLayout body=new LinearLayout(this);body.setOrientation(LinearLayout.VERTICAL);body.setPadding(dp(20),dp(12),dp(20),dp(12));body.setBackgroundColor(SURFACE);
         LinearLayout tabs=new LinearLayout(this);Button mapping=button("按键映射"),feel=button("手感调节");
         tabs.addView(mapping,new LinearLayout.LayoutParams(0,-2,1));tabs.addView(feel,new LinearLayout.LayoutParams(0,-2,1));add(body,tabs,0);
@@ -244,7 +333,7 @@ public final class MainActivity extends Activity {
         int available=getResources().getDisplayMetrics().heightPixels-dp(190);
         body.addView(scroll,new LinearLayout.LayoutParams(-1,Math.min(dp(230),Math.max(dp(100),available))));
         mapping.setOnClickListener(v->mappingSettings(page));feel.setOnClickListener(v->feelSettings(page));mappingSettings(page);
-        settingsDialog=new AlertDialog.Builder(this).setTitle("手柄设置").setView(body).setPositiveButton("完成",null).setNeutralButton("返回主页",(d,w)->showShell(0,null)).create();
+        settingsDialog=new ThemeDialogBuilder(this).setTitle("手柄设置").setView(body).setPositiveButton("完成",null).setNeutralButton("返回主页",(d,w)->showShell(0,null)).create();
         settingsDialog.setOnDismissListener(d->{JSONObject close=command("settings");put(close,"open",!controllerVisible||editing);snapshot=call(close);settingsDialog=null;if(controllerVisible)immersive();});
         settingsDialog.show();settingsDialog.getWindow().setBackgroundDrawable(rounded(SURFACE,0,28));settingsDialog.getButton(-1).setTextColor(PRIMARY);
     }
@@ -263,7 +352,7 @@ public final class MainActivity extends Activity {
         java.util.Collections.addAll(outputLabels,"L3 · 左摇杆按下","R3 · 右摇杆按下","禁用");
         for(int i=0;i<controls.length;i++){
             final String control=controls[i];LinearLayout row=new LinearLayout(this);row.setGravity(Gravity.CENTER_VERTICAL);
-            row.addView(text(labels[i],14,FG),new LinearLayout.LayoutParams(0,dp(48),1));Spinner spinner=new Spinner(this);
+            row.addView(text(labels[i],14,FG),new LinearLayout.LayoutParams(0,dp(48),1));Spinner spinner=new Spinner(this);spinner.setPopupBackgroundDrawable(rounded(SURFACE,0,16));
             spinner.setContentDescription(labels[i]+"映射");ArrayAdapter<String> adapter=new ArrayAdapter<>(this,android.R.layout.simple_spinner_dropdown_item,outputLabels);spinner.setAdapter(adapter);
             spinner.setSelection(keys.indexOf(settings.optJSONObject("mapping").optString(control)));row.addView(spinner,new LinearLayout.LayoutParams(dp(140),dp(48)));
             spinner.setOnItemSelectedListener(new AdapterView.OnItemSelectedListener(){public void onNothingSelected(AdapterView<?> p){}public void onItemSelected(AdapterView<?> p,View v,int position,long id){
@@ -271,7 +360,11 @@ public final class MainActivity extends Activity {
         }
     }
     private void feelSettings(LinearLayout page) {
-        page.removeAllViews();slider(page,"摇杆死区",10,50,(int)Math.round(settings.optDouble("deadzone",.24)*100),"deadzone");
+        page.removeAllViews();
+        Switch game=new Switch(this);game.setText(gameRumble.available()?"游戏震动反馈":"设备不支持游戏震动");game.setTextColor(FG);game.setEnabled(gameRumble.available());game.setChecked(settings.optBoolean("game_rumble")&&gameRumble.available());
+        game.setOnCheckedChangeListener((b,on)->{put(settings,"game_rumble",on);gameRumble.stop();saveSettings();});add(page,game,12);
+        add(page,text(snapshot.optBoolean("connected")&&!snapshot.optBoolean("feedbackSupported")?"当前电脑接收端不支持游戏震动，请更新接收端。":"接收游戏的碰撞、路面等手柄震动；请在游戏中开启手柄震动。",12,MUTED),8);
+        slider(page,"摇杆死区",10,50,(int)Math.round(settings.optDouble("deadzone",.24)*100),"deadzone");
         slider(page,"显示比例",80,110,settings.optInt("size",100),"size");Switch haptics=new Switch(this);haptics.setText("振动反馈");haptics.setTextColor(FG);haptics.setChecked(settings.optBoolean("haptics",true));
         Switch linear=new Switch(this);linear.setText("LT / RT 线性油门 / 刹车");linear.setTextColor(FG);linear.setChecked(settings.optBoolean("linear_triggers"));
         linear.setOnCheckedChangeListener((b,on)->{put(settings,"linear_triggers",on);saveSettings();});add(page,linear,20);
@@ -291,7 +384,9 @@ public final class MainActivity extends Activity {
         rangeSlider.setTag(ratio);
         slider(page,"转向死区（度）",0,10,(int)settings.optDouble("gyro_deadzone",2),"gyro_deadzone");
         Switch reverse=new Switch(this);reverse.setText("转向反向");reverse.setTextColor(FG);reverse.setChecked(settings.optBoolean("gyro_invert"));reverse.setOnCheckedChangeListener((b,on)->{put(settings,"gyro_invert",on);saveSettings();});add(page,reverse,12);
-        add(page,text("像方向盘一样转动手机控制左摇杆横轴，支持跨圈累计角度；触摸左摇杆优先。游戏中可点击「回中」重新校准。F1 档采用常见模拟方向盘行程预设。",12,MUTED),12);
+        add(page,text("像方向盘一样转动手机控制左摇杆横轴，支持跨圈累计角度；触摸左摇杆优先。进入手柄后点击悬浮菜单的「开始校准」才会记录姿态。F1 档采用常见模拟方向盘行程预设。",12,MUTED),12);
+        Button calibrate=button("陀螺仪校准");calibrate.setEnabled(controllerVisible&&settings.optBoolean("gyro_enabled")&&gyro.available());
+        calibrate.setOnClickListener(v->{if(settingsDialog!=null)settingsDialog.dismiss();requestGyroCalibration();});add(page,calibrate,12);
         haptics.setOnCheckedChangeListener((b,on)->{put(settings,"haptics",on);saveSettings();});add(page,haptics,20);
     }
     private SeekBar slider(LinearLayout page,String label,int min,int max,int initial,String key) {
@@ -306,18 +401,18 @@ public final class MainActivity extends Activity {
             status=text(editing?"自定义 · 点击编辑 / 拖动调整":"Orbit Pad · 正在连接…",13,MUTED);addView(status);
             try{JSONArray layout=new JSONArray(NativeBridge.call(command("layout").toString()));for(int i=0;i<layout.length();i++){ControlView v=new ControlView(layout.getJSONObject(i));controls.add(v);addView(v);}}
             catch(Exception e){throw new IllegalStateException(e);}
-            setOnApplyWindowInsetsListener((v,i)->{setPadding(i.getSystemWindowInsetLeft(),i.getSystemWindowInsetTop(),i.getSystemWindowInsetRight(),i.getSystemWindowInsetBottom());return i;});
+            // System bars and cutouts never resize or offset the controller canvas.
+            setOnApplyWindowInsetsListener((v,i)->{setPadding(0,0,0,0);return i;});
         }
         @Override protected void onLayout(boolean changed,int l,int t,int r,int b){
-            float width=getWidth()-getPaddingLeft()-getPaddingRight(),height=getHeight()-getPaddingTop()-getPaddingBottom();
-            float scale=Math.min(width/1000f,height/450f),ox=getPaddingLeft()+(width-1000*scale)/2,oy=getPaddingTop()+(height-450*scale)/2;
-            status.layout((int)(ox+24*scale),(int)(oy+8*scale),(int)(ox+850*scale),(int)(oy+49*scale));
+            super.onLayout(changed,l,t,r,b);
+            float scaleX=getWidth()/1000f,scaleY=getHeight()/450f;
+            status.layout(Math.round(24*scaleX),Math.round(8*scaleY),Math.round(850*scaleX),Math.round(49*scaleY));
             try{JSONArray layout=new JSONArray(NativeBridge.call(command("layout").toString()));for(int i=0;i<controls.size();i++){
-                JSONObject p=layout.getJSONObject(i);float cx=(float)p.getDouble("x")*scale+ox,cy=(float)p.getDouble("y")*scale+oy;
-                float w=(float)p.getDouble("width")*scale,h=(float)p.getDouble("height")*scale;
+                JSONObject p=layout.getJSONObject(i);float cx=(float)p.getDouble("x")*scaleX,cy=(float)p.getDouble("y")*scaleY;
+                float w=(float)p.getDouble("width")*scaleX,h=(float)p.getDouble("height")*scaleY;
                 ControlView control=controls.get(i);control.setVisibility(p.optBoolean("visible",true)?View.VISIBLE:View.GONE);
                 if(editing&&control.id.equals("settings"))control.setVisibility(View.GONE);
-                if(control.id.equals("calibrate")&&!editing&&!settings.optBoolean("gyro_enabled"))control.setVisibility(View.GONE);
                 control.layout(Math.round(cx-w/2),Math.round(cy-h/2),Math.round(cx+w/2),Math.round(cy+h/2));}}
             catch(Exception e){throw new IllegalStateException(e);}
         }
@@ -336,10 +431,10 @@ public final class MainActivity extends Activity {
             if(stick){c.drawCircle(w/2,h/2,radius-2,paint);paint.setStyle(Paint.Style.STROKE);paint.setStrokeWidth(dp(1));paint.setColor(OUTLINE);c.drawCircle(w/2,h/2,radius-2,paint);paint.setStyle(Paint.Style.FILL);
                 JSONArray axes=state==null?null:state.optJSONArray("axes");int axis=id.equals("move")?0:2;float x=axes==null?0:(float)axes.optDouble(axis),y=axes==null?0:(float)axes.optDouble(axis+1);
                 paint.setColor(PRIMARY);c.drawCircle(w/2+x*radius*.55f,h/2+y*radius*.55f,radius*.38f,paint);
-                paint.setColor(0xff381e72);paint.setTextSize(radius*.3f);paint.setTextAlign(Paint.Align.CENTER);c.drawText(label,w/2+x*radius*.55f,h/2+y*radius*.55f+radius*.1f,paint);
+                paint.setColor(theme.onPrimary);paint.setTextSize(radius*.3f);paint.setTextAlign(Paint.Align.CENTER);c.drawText(label,w/2+x*radius*.55f,h/2+y*radius*.55f+radius*.1f,paint);
             }else{
                 float corner=id.length()==1?radius:Math.min(radius,dp(18));c.drawRoundRect(1,1,w-1,h-1,corner,corner,paint);
-                paint.setColor(pressed?0xff381e72:FG);paint.setTextSize(Math.min(h*.35f,dp(22)));paint.setTextAlign(Paint.Align.CENTER);paint.setTypeface(Typeface.create("sans-serif-medium",0));
+                paint.setColor(pressed?theme.onPrimary:FG);paint.setTextSize(Math.min(h*.35f,dp(22)));paint.setTextAlign(Paint.Align.CENTER);paint.setTypeface(Typeface.create("sans-serif-medium",0));
                 if(id.equals("xbox")){
                     android.graphics.drawable.Drawable icon=getDrawable(app.orbitpad.controller.R.drawable.ic_launcher);
                     int d=(int)(Math.min(w,h)*.72f);icon.setBounds((int)(w-d)/2,(int)(h-d)/2,(int)(w+d)/2,(int)(h+d)/2);icon.draw(c);
@@ -350,7 +445,7 @@ public final class MainActivity extends Activity {
                 }
                 if((id.equals("lt")||id.equals("rt"))&&settings.optBoolean("linear_triggers")){
                     JSONArray triggers=state==null?null:state.optJSONArray("triggers");float value=triggers==null?0:(float)triggers.optDouble(id.equals("lt")?0:1);
-                    paint.setColor(0xffa8c7fa);paint.setStrokeWidth(dp(4));
+                    paint.setColor(themeColor(0xffa8c7fa));paint.setStrokeWidth(dp(4));
                     if(w>=h)c.drawLine(dp(10),h-dp(6),dp(10)+(w-dp(20))*value,h-dp(6),paint);
                     else c.drawLine(w-dp(6),dp(10),w-dp(6),dp(10)+(h-dp(20))*value,paint);
                     paint.setTextSize(Math.min(h*.22f,dp(12)));c.drawText(Math.round(value*100)+"%",w/2,h*.8f,paint);
@@ -374,7 +469,7 @@ public final class MainActivity extends Activity {
                 else if(action==MotionEvent.ACTION_UP){layoutEditor.end();if(!resizing&&Math.abs(offsetX)+Math.abs(offsetY)<=dp(6))editControl(id);}
                 else if(action==MotionEvent.ACTION_CANCEL)layoutEditor.end();return true;
             }
-            if(id.equals("calibrate")||id.equals("settings")){if(e.getActionMasked()==MotionEvent.ACTION_UP)performClick();return true;}
+            if(id.equals("settings")){if(e.getActionMasked()==MotionEvent.ACTION_UP)performClick();return true;}
             int action=e.getActionMasked(),index=e.getActionIndex();
             if(action==MotionEvent.ACTION_DOWN||action==MotionEvent.ACTION_POINTER_DOWN){touch(e,index,"down");
                 if(snapshot.optBoolean("enabled")&&settings.optBoolean("haptics",true))performHapticFeedback(HapticFeedbackConstants.KEYBOARD_TAP);}
@@ -386,7 +481,6 @@ public final class MainActivity extends Activity {
         @Override public boolean performClick(){
             super.performClick();
             if(editing){editControl(id);}
-            else if(id.equals("calibrate")){gyro.calibrate();Toast.makeText(MainActivity.this,"陀螺仪校准中，请保持手机稳定",Toast.LENGTH_SHORT).show();}
             else if(id.equals("settings"))showSettings();
             else if(!stick){
                 JSONObject c=command("touch");put(c,"id",-1);put(c,"control",id);put(c,"x",0);put(c,"y",0);put(c,"phase","down");snapshot=call(c);
@@ -396,13 +490,14 @@ public final class MainActivity extends Activity {
         }
     }
 
-    @Override public void onWindowFocusChanged(boolean focus){super.onWindowFocusChanged(focus);if(!focus&&gyro!=null)gyro.stop();JSONObject c=command("focus");put(c,"value",focus);snapshot=call(c);if(focus){if(controllerVisible||editing)immersive();else edgeToEdge();}}
+    @Override public void onWindowFocusChanged(boolean focus){super.onWindowFocusChanged(focus);if(!focus&&gameRumble!=null)gameRumble.stop();if(!focus)resetGyroCalibration();JSONObject c=command("focus");put(c,"value",focus);snapshot=call(c);if(focus){if(controllerVisible||editing)immersive();else edgeToEdge();}}
     @Override public void onBackPressed(){
+        if(gyroCalibrationMenu!=null){dismissGyroCalibration();return;}
         if(editing){if(layoutEditor!=null&&layoutEditor.back())return;finishEditor();return;}
         if(!controllerVisible){if(checking){disconnectTransport();if(shell!=null)shell.update(snapshot);}else if(shell==null||!shell.back())super.onBackPressed();return;}
         showShell(0,null);
     }
-    @Override protected void onPause(){if(gyro!=null)gyro.stop();resumed=false;handler.removeCallbacks(poll);snapshot=call("pause");super.onPause();}
-    @Override protected void onResume(){super.onResume();snapshot=call("resume");resumed=true;handler.removeCallbacks(poll);handler.post(poll);if(controllerVisible||editing)immersive();else edgeToEdge();}
-    @Override protected void onDestroy(){handler.removeCallbacks(poll);disconnectTransport();super.onDestroy();}
+    @Override protected void onPause(){if(gameRumble!=null)gameRumble.stop();resetGyroCalibration();resumed=false;handler.removeCallbacks(poll);snapshot=call("pause");super.onPause();}
+    @Override protected void onResume(){super.onResume();refreshWallpaperPalette();ThemePalette updated=new ThemePalette(this,getPreferences(0));if(!updated.sameColors(theme))applyAppTheme();snapshot=call("resume");resumed=true;handler.removeCallbacks(poll);handler.post(poll);if(controllerVisible||editing)immersive();else edgeToEdge();}
+    @Override protected void onDestroy(){if(wallpaperPalette!=null)wallpaperPalette.close();colorWorker.shutdownNow();if(gameRumble!=null)gameRumble.stop();handler.removeCallbacks(poll);disconnectTransport();super.onDestroy();}
 }

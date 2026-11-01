@@ -29,16 +29,16 @@ public final class ScanActivity extends Activity implements SurfaceHolder.Callba
     private final AtomicBoolean decoding=new AtomicBoolean();
     private final ExecutorService worker=Executors.newSingleThreadExecutor();
     @Override public void onCreate(Bundle state){
-        super.onCreate(state);getWindow().setStatusBarColor(0xff141218);getWindow().setNavigationBarColor(0xff141218);
-        FrameLayout root=new FrameLayout(this);root.setBackgroundColor(0xff141218);
+        ThemePalette theme=new ThemePalette(this,getSharedPreferences("MainActivity",0));theme.applyPlatform(this);super.onCreate(state);getWindow().setStatusBarColor(theme.background);getWindow().setNavigationBarColor(theme.background);getWindow().getDecorView().setSystemUiVisibility(theme.dark?0:View.SYSTEM_UI_FLAG_LIGHT_STATUS_BAR|View.SYSTEM_UI_FLAG_LIGHT_NAVIGATION_BAR);
+        FrameLayout root=new FrameLayout(this);root.setBackgroundColor(theme.background);
         preview=new SurfaceView(this);root.addView(preview,new FrameLayout.LayoutParams(-1,-1));preview.getHolder().addCallback(this);
-        LinearLayout header=new LinearLayout(this);header.setOrientation(LinearLayout.VERTICAL);header.setPadding(24,32,24,20);header.setBackgroundColor(0xcc141218);
-        TextView title=new TextView(this);title.setText("扫描电脑二维码");title.setTextSize(23);title.setTextColor(0xffe6e0e9);header.addView(title);
-        hint=new TextView(this);hint.setText("对准 Orbit Pad 接收端二维码，将自动配对");hint.setTextSize(14);hint.setTextColor(0xffd0bcff);header.addView(hint);
+        LinearLayout header=new LinearLayout(this);header.setOrientation(LinearLayout.VERTICAL);header.setPadding(24,32,24,20);header.setBackgroundColor((theme.background&0xffffff)|0xcc000000);
+        TextView title=new TextView(this);title.setText("扫描电脑二维码");title.setTextSize(23);title.setTextColor(theme.onSurface);header.addView(title);
+        hint=new TextView(this);hint.setText("对准 Orbit Pad 接收端二维码，将自动配对");hint.setTextSize(14);hint.setTextColor(theme.primary);header.addView(hint);
         FrameLayout.LayoutParams top=new FrameLayout.LayoutParams(-1,-2,Gravity.TOP);root.addView(header,top);
-        LinearLayout actions=new LinearLayout(this);actions.setPadding(20,16,20,28);actions.setBackgroundColor(0xcc141218);
-        Button back=new Button(this);back.setText("返回");back.setOnClickListener(v->finish());actions.addView(back,new LinearLayout.LayoutParams(0,-2,1));
-        Button photo=new Button(this);photo.setText("从图片识别");photo.setOnClickListener(v->{Intent i=new Intent(Intent.ACTION_OPEN_DOCUMENT);i.setType("image/*");i.addCategory(Intent.CATEGORY_OPENABLE);startActivityForResult(i,9);});actions.addView(photo,new LinearLayout.LayoutParams(0,-2,1));
+        LinearLayout actions=new LinearLayout(this);actions.setPadding(20,16,20,28);actions.setBackgroundColor((theme.background&0xffffff)|0xcc000000);
+        Button back=new Button(this);back.setText("返回");back.setTextColor(theme.onPrimary);back.setBackgroundTintList(android.content.res.ColorStateList.valueOf(theme.primary));back.setOnClickListener(v->finish());actions.addView(back,new LinearLayout.LayoutParams(0,-2,1));
+        Button photo=new Button(this);photo.setText("从图片识别");photo.setTextColor(theme.onPrimary);photo.setBackgroundTintList(android.content.res.ColorStateList.valueOf(theme.primary));photo.setOnClickListener(v->{Intent i=new Intent(Intent.ACTION_OPEN_DOCUMENT);i.setType("image/*");i.addCategory(Intent.CATEGORY_OPENABLE);startActivityForResult(i,9);});actions.addView(photo,new LinearLayout.LayoutParams(0,-2,1));
         root.addView(actions,new FrameLayout.LayoutParams(-1,-2,Gravity.BOTTOM));
         root.setOnApplyWindowInsetsListener((v,i)->{v.setPadding(i.getSystemWindowInsetLeft(),i.getSystemWindowInsetTop(),i.getSystemWindowInsetRight(),i.getSystemWindowInsetBottom());return i;});setContentView(root);
         if(checkSelfPermission("android.permission.CAMERA")!=PackageManager.PERMISSION_GRANTED)requestPermissions(new String[]{"android.permission.CAMERA"},8);

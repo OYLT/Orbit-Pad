@@ -12,6 +12,7 @@ export class GamepadBridge extends EventEmitter {
     this.ready = dryRun;
     this.report = emptyReport();
     this.error = '';
+    this.feedbackSupported = dryRun;
     this.mode = dryRun ? 'preview' : 'xinput';
   }
 
@@ -43,6 +44,9 @@ export class GamepadBridge extends EventEmitter {
       const lines = output.split(/\r?\n/);
       output = lines.pop();
       for (const line of lines) {
+        if (line === 'FEEDBACK:READY') this.feedbackSupported = true;
+        const motors = /^RUMBLE:(\d{1,3}),(\d{1,3})$/.exec(line);
+        if (motors && motors.slice(1).every(v => Number(v) <= 255)) this.emit('rumble', { large: Number(motors[1]), small: Number(motors[2]), duration: 600 });
         if (line === 'READY') {
           clearTimeout(this.startupTimer);
           this.ready = true; this.error = ''; this.write(); this.emit('status');
@@ -68,6 +72,11 @@ export class GamepadBridge extends EventEmitter {
       const r = this.report;
       this.child.stdin.write(`pad:${[r.buttons, r.leftTrigger, r.rightTrigger, r.leftX, r.leftY, r.rightX, r.rightY].join(',')}\n`);
     }
+  }
+
+  resetFeedback() {
+    if (this.ready && !this.dryRun && this.child?.stdin.writable) this.child.stdin.write('feedback:clear\n');
+    this.emit('rumble', { large: 0, small: 0, duration: 600 });
   }
 
   setReport(report) {

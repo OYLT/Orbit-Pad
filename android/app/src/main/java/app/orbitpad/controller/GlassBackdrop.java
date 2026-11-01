@@ -25,6 +25,7 @@ import android.widget.FrameLayout;
 /** Page display list shared by the Dock and the scroll-dependent status-bar veil. */
 final class GlassBackdrop extends FrameLayout {
     final FrameLayout page;
+    final boolean preview;
     private final MainActivity app;
     private Backend backend;
     private boolean failed;
@@ -35,12 +36,13 @@ final class GlassBackdrop extends FrameLayout {
     private LinearGradient veilMask,veilTint;
     private final PorterDuffXfermode veilBlend=new PorterDuffXfermode(PorterDuff.Mode.DST_IN);
     void setTopFade(int inset,float amount){
+        if(inset==0)amount=0;
         int height=inset+app.dp(56);amount=Math.max(0,Math.min(1,amount));
         if(topHeight==height&&topFade==amount)return;
         if(topHeight!=height){
             topHeight=height;
             veilMask=new LinearGradient(0,0,0,height,new int[]{0xffffffff,0xf2ffffff,0x00ffffff},new float[]{0,Math.min(.72f,(inset+app.dp(8))/(float)height),1},Shader.TileMode.CLAMP);
-            veilTint=new LinearGradient(0,0,0,height,new int[]{0xb3141218,0x60141218,0x00141218},new float[]{0,.48f,1},Shader.TileMode.CLAMP);
+            veilTint=new LinearGradient(0,0,0,height,new int[]{(app.theme.background&0xffffff)|0xb3000000,(app.theme.background&0xffffff)|0x60000000,app.theme.background&0xffffff},new float[]{0,.48f,1},Shader.TileMode.CLAMP);
         }
         topFade=amount;invalidate();
     }
@@ -62,13 +64,15 @@ final class GlassBackdrop extends FrameLayout {
     private final BroadcastReceiver powerChanges=new BroadcastReceiver(){
         @Override public void onReceive(Context context,Intent intent){invalidate();if(dock!=null)dock.invalidate();}
     };
-    GlassBackdrop(MainActivity app){
-        super(app);this.app=app;setBackgroundColor(0xff141218);setClipChildren(false);setClipToPadding(false);
-        page=new FrameLayout(app);page.setBackgroundColor(0xff141218);
+    GlassBackdrop(MainActivity app){this(app,false);}
+    GlassBackdrop(MainActivity app,boolean preview){
+        super(app);this.app=app;this.preview=preview;setBackgroundColor(app.theme.background);setClipChildren(false);setClipToPadding(false);
+        page=new FrameLayout(app);page.setBackgroundColor(app.theme.background);
         addView(page,new FrameLayout.LayoutParams(-1,-1));
     }
     void setDock(GlassDock dock){this.dock=dock;}
-    int quality(){return failed?GlassQualityPolicy.SIMPLE:GlassQualityPolicy.resolve(app);}
+    void refreshTheme(){setBackgroundColor(app.theme.background);page.setBackgroundColor(app.theme.background);topHeight=0;invalidate();}
+    int quality(){return failed?GlassQualityPolicy.SIMPLE:preview?GlassQualityPolicy.resolveGlass(app):GlassQualityPolicy.resolve(app);}
     @Override protected boolean drawChild(Canvas canvas,View child,long drawingTime){
         if(child!=page)return super.drawChild(canvas,child,drawingTime);
         boolean drawn=false;

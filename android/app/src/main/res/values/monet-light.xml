@@ -1,0 +1,58 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <style name="ThemeMonet_lilacLight" parent="AppThemeLight">
+        <item name="android:colorAccent">#ff65558f</item>
+        <item name="android:colorBackground">#fffdf7ff</item>
+        <item name="android:colorBackgroundFloating">#ffece6ee</item>
+        <item name="android:textColorPrimary">#ff1d1b20</item>
+        <item name="android:textColorSecondary">#ff49454e</item>
+        <item name="android:textColorHint">#ff7a757f</item>
+        <item name="android:colorControlActivated">#ff65558f</item>
+    </style>
+    <style name="ThemeMonet_oceanLight" parent="AppThemeLight">
+        <item name="android:colorAccent">#ff36618e</item>
+        <item name="android:colorBackground">#fff8f9ff</item>
+        <item name="android:colorBackgroundFloating">#ffe6e8ee</item>
+        <item name="android:textColorPrimary">#ff191c20</item>
+        <item name="android:textColorSecondary">#ff43474e</item>
+        <item name="android:textColorHint">#ff73777f</item>
+        <item name="android:colorControlActivated">#ff36618e</item>
+    </style>
+    <style name="ThemeMonet_jadeLight" parent="AppThemeLight">
+        <item name="android:colorAccent">#ff1f6a4e</item>
+        <item name="android:colorBackground">#fff5fbf5</item>
+        <item name="android:colorBackgroundFloating">#ffe4eae4</item>
+        <item name="android:textColorPrimary">#ff171d1a</item>
+        <item name="android:textColorSecondary">#ff404943</item>
+        <item name="android:textColorHint">#ff707973</item>
+        <item name="android:colorControlActivated">#ff1f6a4e</item>
+    </style>
+    <style name="ThemeMonet_roseLight" parent="AppThemeLight">
+        <item name="android:colorAccent">#ff8c4a60</item>
+        <item name="android:colorBackground">#fffff8f8</item>
+        <item name="android:colorBackgroundFloating">#fff5e4e7</item>
+        <item name="android:textColorPrimary">#ff22191c</item>
+        <item name="android:textColorSecondary">#ff514347</item>
+        <item name="android:textColorHint">#ff837377</item>
+        <item name="android:colorControlActivated">#ff8c4a60</item>
+    </style>
+    <style name="ThemeMonet_sandLight" parent="AppThemeLight">
+        <item name="android:colorAccent">#ff805610</item>
+        <item name="android:colorBackground">#fffff8f4</item>
+        <item name="android:colorBackgroundFloating">#fff3e6da</item>
+        <item name="android:textColorPrimary">#ff201b13</item>
+        <item name="android:textColorSecondary">#ff4f4539</item>
+        <item name="android:textColorHint">#ff817567</item>
+        <item name="android:colorControlActivated">#ff805610</item>
+    </style>
+    <style name="ThemeMonet_slateLight" parent="AppThemeLight">
+        <item name="android:colorAccent">#ff4a5c92</item>
+        <item name="android:colorBackground">#fffaf8ff</item>
+        <item name="android:colorBackgroundFloating">#ffe8e7ef</item>
+        <item name="android:textColorPrimary">#ff1a1b21</item>
+        <item name="android:textColorSecondary">#ff45464f</item>
+        <item name="android:textColorHint">#ff757680</item>
+        <item name="android:colorControlActivated">#ff4a5c92</item>
+    </style>
+    <style name="ThemeMonetDynamicLight" parent="ThemeMonet_lilacLight" />
+</resources>

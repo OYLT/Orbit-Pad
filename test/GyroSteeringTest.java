@@ -28,30 +28,36 @@ public final class GyroSteeringTest {
         }
         // Movement restarts calibration; any stable held orientation can become neutral.
         GyroSteering.Rotation rotation=new GyroSteering.Rotation();
+        for(long timestamp:new long[]{0,600000000L,1500000000L})near(rotation.sample(turn(35),timestamp),0);
+        check(!rotation.armed&&!rotation.calibrated);
+        rotation.beginCalibration();
         near(rotation.sample(turn(35),0),0);check(!rotation.calibrated);
         near(rotation.sample(turn(35),500000000L),0);check(!rotation.calibrated);
         near(rotation.sample(turn(45),550000000L),0);
         near(rotation.sample(turn(45),1000000000L),0);check(!rotation.calibrated);
         near(rotation.sample(turn(45),1150000000L),0);check(rotation.calibrated);
         near(rotation.sample(turn(68.5f),1200000000L),23.5f);
-        // Restart/manual recenter discards both the previous zero and accumulated turns.
-        rotation.reset();check(!rotation.calibrated);
+        // Returning to the waiting state never rearms itself, even with stable samples.
+        rotation.reset();check(!rotation.armed&&!rotation.calibrated);
+        near(rotation.sample(turn(-70),1300000000L),0);near(rotation.sample(turn(-70),2300000000L),0);check(!rotation.calibrated);
+        rotation.beginCalibration();check(!rotation.calibrated);
         near(rotation.sample(turn(-70),1300000000L),0);
         near(rotation.sample(turn(-70),1900000000L),0);check(rotation.calibrated);
         near(rotation.sample(turn(-70),1950000000L),0);
         near(rotation.sample(turn(-25),2000000000L),45);
         for(float[] base:new float[][]{turn(90),turn(-90),new float[]{0.70710677f,0.70710677f,0,0}}) {
-            rotation.reset();rotation.sample(base,0);rotation.sample(base,600000000L);
+            rotation.beginCalibration();rotation.sample(base,0);rotation.sample(base,600000000L);
             near(rotation.sample(multiply(base,turn(45)),620000000L),45);
         }
         // Cross +/-180 repeatedly, then unwind to center without lost turns or sign flips.
-        rotation.reset();rotation.sample(zero,0);rotation.sample(zero,600000000L);
+        rotation.beginCalibration();rotation.sample(zero,0);rotation.sample(zero,600000000L);
         long time=620000000L;
         for(int degrees=0;degrees<=720;degrees+=10)near(rotation.sample(turn(degrees),time+=20000000L),degrees);
         for(int degrees=720;degrees>=-720;degrees-=10)near(rotation.sample(turn(degrees),time+=20000000L),degrees);
         for(int degrees=-720;degrees<=0;degrees+=10)near(rotation.sample(turn(degrees),time+=20000000L),degrees);
         near(rotation.sample(new float[]{Float.NaN,0,0,0},time+=20000000L),0);check(!rotation.calibrated);
         near(rotation.sample(new float[]{0,0,0,0},time+=20000000L),0);check(!rotation.calibrated);
+        near(rotation.sample(zero,time+=1000000000L),0);check(!rotation.armed&&!rotation.calibrated);
         System.out.println("Gyro calibration / multi-turn steering: "+checks+" checks passed");
     }
 }

@@ -1,0 +1,64 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <style name="ThemeMonet_lilac" parent="AppTheme">
+        <item name="android:colorAccent">#ffcfbdfe</item>
+        <item name="android:colorBackground">#ff141218</item>
+        <item name="android:colorBackgroundFloating">#ff2b292f</item>
+        <item name="android:textColorPrimary">#ffe6e0e9</item>
+        <item name="android:textColorSecondary">#ffcac4cf</item>
+        <item name="android:textColorHint">#ff948f99</item>
+        <item name="android:colorButtonNormal">#ffcfbdfe</item>
+        <item name="android:colorControlActivated">#ffcfbdfe</item>
+    </style>
+    <style name="ThemeMonet_ocean" parent="AppTheme">
+        <item name="android:colorAccent">#ffa0cafd</item>
+        <item name="android:colorBackground">#ff111418</item>
+        <item name="android:colorBackgroundFloating">#ff272a2f</item>
+        <item name="android:textColorPrimary">#ffe1e2e8</item>
+        <item name="android:textColorSecondary">#ffc3c6cf</item>
+        <item name="android:textColorHint">#ff8d9199</item>
+        <item name="android:colorButtonNormal">#ffa0cafd</item>
+        <item name="android:colorControlActivated">#ffa0cafd</item>
+    </style>
+    <style name="ThemeMonet_jade" parent="AppTheme">
+        <item name="android:colorAccent">#ff8dd5b3</item>
+        <item name="android:colorBackground">#ff0f1512</item>
+        <item name="android:colorBackgroundFloating">#ff252b28</item>
+        <item name="android:textColorPrimary">#ffdee4de</item>
+        <item name="android:textColorSecondary">#ffbfc9c2</item>
+        <item name="android:textColorHint">#ff8a938c</item>
+        <item name="android:colorButtonNormal">#ff8dd5b3</item>
+        <item name="android:colorControlActivated">#ff8dd5b3</item>
+    </style>
+    <style name="ThemeMonet_rose" parent="AppTheme">
+        <item name="android:colorAccent">#ffffb0c8</item>
+        <item name="android:colorBackground">#ff191113</item>
+        <item name="android:colorBackgroundFloating">#ff31282a</item>
+        <item name="android:textColorPrimary">#ffefdfe1</item>
+        <item name="android:textColorSecondary">#ffd5c2c6</item>
+        <item name="android:textColorHint">#ff9e8c90</item>
+        <item name="android:colorButtonNormal">#ffffb0c8</item>
+        <item name="android:colorControlActivated">#ffffb0c8</item>
+    </style>
+    <style name="ThemeMonet_sand" parent="AppTheme">
+        <item name="android:colorAccent">#fff4bd6f</item>
+        <item name="android:colorBackground">#ff18120b</item>
+        <item name="android:colorBackgroundFloating">#ff2f2921</item>
+        <item name="android:textColorPrimary">#ffede0d4</item>
+        <item name="android:textColorSecondary">#ffd3c4b4</item>
+        <item name="android:textColorHint">#ff9c8f80</item>
+        <item name="android:colorButtonNormal">#fff4bd6f</item>
+        <item name="android:colorControlActivated">#fff4bd6f</item>
+    </style>
+    <style name="ThemeMonet_slate" parent="AppTheme">
+        <item name="android:colorAccent">#ffb3c5ff</item>
+        <item name="android:colorBackground">#ff121318</item>
+        <item name="android:colorBackgroundFloating">#ff292a2f</item>
+        <item name="android:textColorPrimary">#ffe3e2e9</item>
+        <item name="android:textColorSecondary">#ffc5c6d0</item>
+        <item name="android:textColorHint">#ff8f909a</item>
+        <item name="android:colorButtonNormal">#ffb3c5ff</item>
+        <item name="android:colorControlActivated">#ffb3c5ff</item>
+    </style>
+    <style name="ThemeMonetDynamic" parent="ThemeMonet_lilac" />
+</resources>

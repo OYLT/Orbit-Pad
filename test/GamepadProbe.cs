@@ -1,7 +1,7 @@
 using System;
 using System.Runtime.InteropServices;
 
-// Reads the standard Windows API only. It never injects input into any device.
+// Reads gamepad input; explicit motor arguments exercise XInputSetState on a selected test slot.
 internal static class GamepadProbe {
     [StructLayout(LayoutKind.Sequential)]
     private struct State {
@@ -12,7 +12,11 @@ internal static class GamepadProbe {
     }
     [DllImport("xinput1_4.dll", EntryPoint = "XInputGetState")]
     private static extern uint GetState(uint index, out State state);
-    private static void Main() {
+    [StructLayout(LayoutKind.Sequential)] private struct Vibration { public ushort Large,Small; }
+    [DllImport("xinput1_4.dll", EntryPoint="XInputSetState")] private static extern uint SetState(uint index,ref Vibration vibration);
+    private static void Main(string[] args) {
+        if(args.Length>=3){var motors=new Vibration {Large=UInt16.Parse(args[1]),Small=UInt16.Parse(args[2])};Console.WriteLine(SetState(UInt32.Parse(args[0]),ref motors));if(args.Length>3)System.Threading.Thread.Sleep(Int32.Parse(args[3]));return;}
+
         Console.Write("[");
         for (uint i = 0; i < 4; i++) {
             State s;

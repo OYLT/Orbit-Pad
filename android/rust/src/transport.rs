@@ -104,7 +104,10 @@ fn open(session: &Session) -> Result<WebSocket<TcpStream>, String> {
     ws.get_mut()
         .set_nonblocking(true)
         .map_err(|e| e.to_string())?;
-    send(&mut ws, json!({"type":"auth","token":session.token}))?;
+    send(
+        &mut ws,
+        json!({"type":"auth","token":session.token,"feedback":true}),
+    )?;
     Ok(ws)
 }
 fn send(ws: &mut WebSocket<TcpStream>, value: Value) -> Result<(), String> {
@@ -214,6 +217,8 @@ fn connected(core: &Arc<Mutex<Core>>, mut ws: WebSocket<TcpStream>, epoch: u64) 
                             if !authenticated {
                                 return Outcome::Terminal("接收端认证顺序异常".into());
                             }
+                            c.feedback_supported =
+                                data["feedbackSupported"].as_bool().unwrap_or(false);
                             let ready = data["ready"].as_bool().unwrap_or(false);
                             let paused = data["paused"].as_bool().unwrap_or(false);
                             if ready != c.ready || paused != c.paused {
@@ -229,6 +234,23 @@ fn connected(core: &Arc<Mutex<Core>>, mut ws: WebSocket<TcpStream>, epoch: u64) 
                                 "已连接"
                             }
                             .into();
+                        }
+                        "rumble" => {
+                            if !authenticated {
+                                return Outcome::Terminal("接收端认证顺序异常".into());
+                            }
+                            let Some(large) = data["large"].as_u64() else {
+                                return Outcome::Terminal("游戏震动数据无效".into());
+                            };
+                            let Some(small) = data["small"].as_u64() else {
+                                return Outcome::Terminal("游戏震动数据无效".into());
+                            };
+                            let Some(duration) = data["duration"].as_u64() else {
+                                return Outcome::Terminal("游戏震动数据无效".into());
+                            };
+                            if c.receive_rumble(large, small, duration).is_err() {
+                                return Outcome::Terminal("游戏震动数据无效".into());
+                            }
                         }
                         "pong" => {
                             if let Some(sent) = data["sent"].as_u64() {

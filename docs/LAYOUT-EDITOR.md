@@ -8,6 +8,8 @@
 
 进入自定义布局后，画布与使用手柄时完全相同。工具栏和二级编辑菜单叠加在画布上，不占用布局高度。点击控件显示位置、尺寸、显示三页菜单，菜单优先放在选中控件的另一侧；关闭菜单后可直接拖动控件或右下角尺寸手柄。
 
+手柄与编辑画布铺满整个屏幕，不为系统状态栏、导航栏或刘海预留空间。1000 × 450 布局坐标分别映射到屏幕宽高，取消固定比例居中产生的两侧留白；位置和尺寸范围延伸至屏幕四边，系统栏临时出现时也不改变按键坐标。
+
 方向键与 XABY 默认分别绑定为组，整体平移和缩放保持相对关系。在菜单关闭绑定可单独调节某个按键。XABY 与 LB/LT/RT/RB 共用连续宽高调节，按控件或组合整体约束到画布边界。组合变宽时，成员位置与宽度一起变换；解绑后只改变当前键。
 
 保存并返回会更新当前系统配置或自定义模板；另存为新模板生成独立副本。旧配置自动获得默认分组，已有映射、陀螺仪及线性扳机设置保留。
@@ -24,3 +26,9 @@
 - 真机记录及截图：artifacts/layout-editor-final；几何检查：python scripts/test-layout-geometry.py；专项真机命令：python scripts/test-glass-android.py --serial SERIAL --suite layout。
 
 Android 8–11 的缓存模糊已检查卷积行为，尚未在该系统版本上进行真机验证。
+
+## 全屏画布验证（2026-11-01）
+
+Redmi M2012K11C / Android 16 / HyperOS 3：14 项全屏专项检查及 15 项布局回归检查全部通过。专项覆盖正向与反向横屏、画布与窗口尺寸一致、零安全区内边距、按键到达屏幕四边、临时系统栏不移动按键，以及编辑与使用页坐标一致。几何边界检查、16 项 Rust 测试、fmt、Clippy 和 80 项接收协议检查通过。
+
+运行：`python scripts/test-glass-android.py --serial SERIAL --suite canvas --output artifacts/fullscreen-canvas`。布局回归使用 `--suite layout --output artifacts/fullscreen-layout-regression`；对应目录保存截图、结果和 APK SHA-256。

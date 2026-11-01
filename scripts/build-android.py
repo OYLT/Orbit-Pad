@@ -45,7 +45,7 @@ assets = ['-A', source / 'assets'] if (source / 'assets').exists() else []
 run([BUILD_TOOLS / 'aapt2.exe', 'link', '-o', BUILD / 'base.apk', '-I', PLATFORM,
     '--manifest', source / 'AndroidManifest.xml', '--java', BUILD / 'generated', '--auto-add-overlay', *assets, BUILD / 'resources.zip'])
 sources = list((source / 'java').rglob('*.java')) + list((BUILD / 'generated').rglob('*.java'))
-libraries = [TOOLS / 'zxing-core-3.5.3.jar'] if not TEST_BUILD else []
+libraries = [TOOLS / 'zxing-core-3.5.3.jar', ROOT / 'third_party/MaterialColorUtilities/material-hct-1.10.0.jar'] if not TEST_BUILD else []
 classpath = os.pathsep.join(str(p) for p in [PLATFORM,*libraries])
 run([JAVA / 'bin/javac.exe', '-encoding', 'UTF-8', '--release', '8', '-classpath', classpath,
     '-d', BUILD / 'classes', *sources])

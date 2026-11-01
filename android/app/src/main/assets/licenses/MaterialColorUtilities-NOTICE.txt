@@ -1,0 +1,4 @@
+Material Color Utilities / Material Components for Android 1.10.0
+Copyright Google LLC. Apache-2.0.
+https://github.com/material-components/material-components-android/tree/1.10.0/lib/java/com/google/android/material/color/utilities
+Seven unmodified JVM classes: Hct, HctSolver, Cam16, ViewingConditions, ColorUtils, MathUtils, TonalPalette.

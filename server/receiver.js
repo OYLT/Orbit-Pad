@@ -28,11 +28,12 @@ export function createReceiver({ input, port = 3210, host = '0.0.0.0', now = Dat
   const status = () => ({
     app: 'orbit-pad', version: '0.5.0',
     name: hostname(), port: listeningPort, paused, mode: input.mode,
+    feedbackSupported: input.feedbackSupported === true,
     ready: input.ready, error: input.error, connected: !!active,
     device: active?.device || null,
   });
   const broadcast = () => { for (const ws of wss.clients) if (ws.authenticated) send(ws, { type: 'status', ...status() }); };
-  const release = ws => { if (active === ws) { ws.state = emptyState(); input.setReport(emptyReport()); } };
+  const release = ws => { if (active === ws) { ws.state = emptyState(); input.setReport(emptyReport()); input.resetFeedback?.(); } };
   const reply = (res, code, value, type = 'application/json; charset=utf-8') => {
     res.writeHead(code, { 'Content-Type': type, 'Cache-Control': 'no-store', 'X-Content-Type-Options': 'nosniff',
       'Referrer-Policy': 'no-referrer', 'X-Frame-Options': 'DENY',
@@ -144,6 +145,7 @@ export function createReceiver({ input, port = 3210, host = '0.0.0.0', now = Dat
           const token = tokens.get(data.token);
           if (data.type !== 'auth' || !token || token.expires < now()) { ws.close(4001, '配对已过期'); return; }
           if (active && active.readyState === WebSocket.OPEN) { send(ws, { type: 'busy' }); ws.close(4009, '已有手柄连接'); return; }
+          ws.feedback = data.feedback === true;
           ws.authenticated = true;
           ws.device = token.device;
           ws.expires = token.expires;
@@ -195,6 +197,12 @@ export function createReceiver({ input, port = 3210, host = '0.0.0.0', now = Dat
     for (const [ip, data] of attempts) if (data.expires < now()) attempts.delete(ip);
   }, 400);
   watchdog.unref();
+  const feedback = value => {
+    if (!active?.authenticated || !active.feedback || !input.ready || !value
+        || ![value.large, value.small].every(n => Number.isInteger(n) && n >= 0 && n <= 255)) return;
+    send(active, { type: 'rumble', large: paused ? 0 : value.large, small: paused ? 0 : value.small, duration: 600 });
+  };
+  input.on?.('rumble', feedback);
   input.on?.('status', () => { if (!input.ready && active) release(active); broadcast(); });
   return {
     server,
@@ -205,6 +213,7 @@ export function createReceiver({ input, port = 3210, host = '0.0.0.0', now = Dat
     },
     async stop() {
       clearInterval(watchdog);
+      input.off?.('rumble', feedback);
       if (active) release(active);
       for (const ws of wss.clients) ws.terminate();
       wss.close();

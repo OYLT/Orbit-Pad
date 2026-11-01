@@ -153,6 +153,7 @@ pub struct Settings {
     pub deadzone: f32,
     pub size: u16,
     pub haptics: bool,
+    pub game_rumble: bool,
     pub preset: String,
     pub layout: BTreeMap<String, Placement>,
     pub group_dpad: bool,
@@ -174,6 +175,7 @@ impl Default for Settings {
             deadzone: 0.24,
             size: 100,
             haptics: true,
+            game_rumble: false,
             preset: "general".into(),
             layout: BTreeMap::new(),
             group_dpad: true,
@@ -211,7 +213,7 @@ impl Settings {
         if !self.deadzone.is_finite()
             || !(0.1..=0.5).contains(&self.deadzone)
             || !(80..=110).contains(&self.size)
-            || !["general", "racing", "platform", "custom"].contains(&self.preset.as_str())
+            || !["general", "racing", "platform", "forza", "custom"].contains(&self.preset.as_str())
         {
             return Err("手感设置无效".into());
         }
@@ -248,6 +250,47 @@ impl Settings {
         let changes: &[(&str, &str)] = match name {
             "general" => &[],
             "racing" | "platform" => &[],
+            "forza" => {
+                settings.linear_triggers = true;
+                settings.game_rumble = true;
+                settings.group_face = false;
+                for (id, x, y, w, h) in [
+                    ("a", 918., 112., 92., 92.),
+                    ("rt", 918., 292., 92., 232.),
+                    ("lt", 62., 237., 92., 342.),
+                    ("lb", 210., 88., 132., 50.),
+                    ("rb", 760., 88., 132., 50.),
+                    ("move", 235., 242., 172., 172.),
+                    ("look", 680., 315., 150., 150.),
+                    ("up", 430., 270., 52., 52.),
+                    ("down", 430., 378., 52., 52.),
+                    ("left", 376., 324., 52., 52.),
+                    ("right", 484., 324., 52., 52.),
+                    ("b", 802., 342., 66., 66.),
+                    ("x", 806., 236., 66., 66.),
+                    ("y", 800., 156., 66., 66.),
+                    ("select", 400., 168., 90., 46.),
+                    ("start", 530., 168., 90., 46.),
+                    ("xbox", 600., 93., 54., 54.),
+                ] {
+                    let (base_w, base_h) = match id {
+                        "a" => (66., 66.),
+                        "lt" | "rt" => (132., 50.),
+                        _ => (w, h),
+                    };
+                    settings.layout.insert(
+                        id.into(),
+                        Placement {
+                            x: Some(x),
+                            y: Some(y),
+                            width: w / base_w,
+                            height: h / base_h,
+                            ..Placement::default()
+                        },
+                    );
+                }
+                &[]
+            }
             _ => return Err("未知预设".into()),
         };
         for (control, key) in changes {
@@ -386,19 +429,18 @@ pub fn layout(settings: &Settings) -> Value {
         ("select", "View", "View 背包", 442., 188., 90., 46.),
         ("start", "Menu", "Menu 暂停", 558., 188., 90., 46.),
         ("xbox", "Xbox", "Xbox · 呼出 Game Bar", 500., 104., 54., 54.),
-        ("calibrate", "回中", "陀螺仪回中校准", 500., 260., 86., 42.),
-        ("settings", "设置", "手柄设置", 935., 29., 86., 40.),
+        ("settings", "设置", "手柄设置", 500., 29., 86., 40.),
     ];
     json!(controls
         .into_iter()
         .map(|(id, label, description, x, y, w, h)| {
             let p = settings.layout.get(id).cloned().unwrap_or_default();
-            let w = (w * scale * p.scale * p.width).clamp(24.0, 992.0);
-            let h = (h * scale * p.scale * p.height).clamp(24.0, 442.0);
+            let w = (w * scale * p.scale * p.width).clamp(24.0, 1000.0);
+            let h = (h * scale * p.scale * p.height).clamp(24.0, 450.0);
             json!({
                 "id": id, "label": label, "description": description,
-                "x": p.x.unwrap_or(x).clamp(w/2.0+4.0, 996.0-w/2.0),
-                "y": p.y.unwrap_or(y).clamp(h/2.0+4.0, 446.0-h/2.0),
+                "x": p.x.unwrap_or(x).clamp(w/2.0, 1000.0-w/2.0),
+                "y": p.y.unwrap_or(y).clamp(h/2.0, 450.0-h/2.0),
                 "width": w, "height": h, "visible": !p.hidden
             })
         })
@@ -408,6 +450,45 @@ pub fn layout(settings: &Settings) -> Value {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn forza_preset_has_aligned_pedals_and_no_overlapping_controls() {
+        let settings = Settings::preset("forza").unwrap();
+        settings.validate().unwrap();
+        assert!(settings.linear_triggers && settings.game_rumble && !settings.group_face);
+        let layout = layout(&settings);
+        let controls = layout.as_array().unwrap();
+        let get = |id| controls.iter().find(|p| p["id"] == id).unwrap();
+        let n = |p: &Value, key: &str| p[key].as_f64().unwrap();
+        let a = get("a");
+        let rt = get("rt");
+        let lt = get("lt");
+        assert!((n(a, "width") - n(a, "height")).abs() < 0.001);
+        assert!((n(a, "width") - n(rt, "width")).abs() < 0.001);
+        assert!((n(a, "width") - n(lt, "width")).abs() < 0.001);
+        assert!(n(rt, "height") > 2.0 * n(rt, "width"));
+        assert!(n(rt, "y") - n(rt, "height") / 2.0 > n(a, "y") + n(a, "height") / 2.0);
+        assert!(
+            (n(lt, "y") - n(lt, "height") / 2.0 - (n(a, "y") - n(a, "height") / 2.0)).abs() < 0.001
+        );
+        assert!(
+            (n(lt, "y") + n(lt, "height") / 2.0 - (n(rt, "y") + n(rt, "height") / 2.0)).abs()
+                < 0.001
+        );
+        assert_eq!(get("settings")["x"], 500.0);
+        for (i, first) in controls.iter().enumerate() {
+            for second in controls.iter().skip(i + 1) {
+                assert!(
+                    (n(first, "x") - n(second, "x")).abs()
+                        >= (n(first, "width") + n(second, "width")) / 2.0
+                        || (n(first, "y") - n(second, "y")).abs()
+                            >= (n(first, "height") + n(second, "height")) / 2.0,
+                    "{} overlaps {}",
+                    first["id"],
+                    second["id"]
+                );
+            }
+        }
+    }
     #[test]
     fn old_layouts_default_to_linked_groups_and_face_keys_fit_the_canvas() {
         let s: Settings = serde_json::from_str("{}").unwrap();
@@ -435,10 +516,10 @@ mod tests {
             let w = p["width"].as_f64().unwrap();
             let h = p["height"].as_f64().unwrap();
             assert!(
-                x - w / 2.0 >= 4.0
-                    && x + w / 2.0 <= 996.0
-                    && y - h / 2.0 >= 4.0
-                    && y + h / 2.0 <= 446.0
+                x - w / 2.0 == 0.0
+                    && x + w / 2.0 == 1000.0
+                    && y - h / 2.0 == 0.0
+                    && y + h / 2.0 == 450.0
             );
         }
         let settings = Settings {
@@ -451,7 +532,7 @@ mod tests {
         assert!(!decoded.group_face && !decoded.group_dpad);
     }
     #[test]
-    fn saved_recenter_control_and_custom_range_are_preserved() {
+    fn legacy_recenter_placement_loads_but_is_not_rendered() {
         let mut settings = Settings {
             gyro_enabled: true,
             gyro_range: 60.0,
@@ -474,7 +555,7 @@ mod tests {
         assert!(loaded.layout["a"].hidden);
         assert!(loaded.gyro_enabled);
         assert_eq!(loaded.gyro_range, 60.0);
-        assert!(layout(&loaded)
+        assert!(!layout(&loaded)
             .as_array()
             .unwrap()
             .iter()

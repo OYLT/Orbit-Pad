@@ -5,6 +5,7 @@ use model::{Address, Input, InputState, Settings};
 use serde_json::{json, Value};
 use std::collections::VecDeque;
 use std::sync::{Arc, Mutex, OnceLock};
+use std::time::{Duration, Instant};
 
 #[derive(Clone)]
 struct Session {
@@ -30,6 +31,9 @@ struct Core {
     rtt: Option<u64>,
     input: Input,
     settings: Settings,
+    feedback_supported: bool,
+    rumble: [u8; 2],
+    rumble_until: Option<Instant>,
     revision: u64,
     pending: VecDeque<Pending>,
 }
@@ -48,6 +52,9 @@ impl Default for Core {
             rtt: None,
             input: Input::default(),
             settings: Settings::default(),
+            feedback_supported: false,
+            rumble: [0, 0],
+            rumble_until: None,
             revision: 0,
             pending: VecDeque::new(),
         }
@@ -63,6 +70,8 @@ impl Core {
             && !self.paused
     }
     fn release(&mut self) {
+        self.rumble = [0, 0];
+        self.rumble_until = None;
         self.input.clear();
         self.pending.clear();
         self.pending.push_back(Pending {
@@ -73,9 +82,29 @@ impl Core {
     fn current(&self, epoch: u64) -> bool {
         self.epoch == epoch && self.foreground && self.session.is_some()
     }
+    fn receive_rumble(&mut self, large: u64, small: u64, duration: u64) -> Result<(), String> {
+        if large > 255 || small > 255 || !(1..=1000).contains(&duration) {
+            return Err("无效的游戏震动数据".into());
+        }
+        if self.enabled() && self.settings.game_rumble {
+            self.rumble = [large as u8, small as u8];
+            self.rumble_until = Some(Instant::now() + Duration::from_millis(duration));
+        }
+        Ok(())
+    }
     fn snapshot(&self) -> Value {
+        let rumble = if self.enabled()
+            && self.settings.game_rumble
+            && self
+                .rumble_until
+                .is_some_and(|until| until > Instant::now())
+        {
+            self.rumble
+        } else {
+            [0, 0]
+        };
         json!({ "connected": self.connected, "ready": self.ready, "paused": self.paused,
-            "enabled": self.enabled(), "message": self.message, "rtt": self.rtt,
+            "enabled": self.enabled(), "rumble": rumble, "feedbackSupported": self.feedback_supported, "message": self.message, "rtt": self.rtt,
             "settings": self.settings, "state": self.input.state(), "version": env!("CARGO_PKG_VERSION"),
             "reconnectable": self.session.is_some(), "settingsOpen": self.settings_open })
     }
@@ -307,6 +336,40 @@ pub extern "system" fn Java_app_orbitpad_controller_NativeBridge_call(
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn game_rumble_requires_opt_in_and_clears_for_every_lifecycle_gate() {
+        let mut c = Core {
+            connected: true,
+            ready: true,
+            ..Core::default()
+        };
+        c.receive_rumble(255, 128, 600).unwrap();
+        assert_eq!(c.snapshot()["rumble"], json!([0, 0]));
+        c.settings.game_rumble = true;
+        c.receive_rumble(128, 64, 600).unwrap();
+        assert_eq!(c.snapshot()["rumble"], json!([128, 64]));
+        c.rumble_until = Some(Instant::now() - Duration::from_millis(1));
+        assert_eq!(c.snapshot()["rumble"], json!([0, 0]));
+        c.receive_rumble(255, 255, 600).unwrap();
+        c.settings_open = true;
+        assert_eq!(c.snapshot()["rumble"], json!([0, 0]));
+        c.release();
+        c.settings_open = false;
+        assert_eq!(c.snapshot()["rumble"], json!([0, 0]));
+        c.receive_rumble(255, 128, 600).unwrap();
+        c.focused = false;
+        assert_eq!(c.snapshot()["rumble"], json!([0, 0]));
+        c.release();
+        c.focused = true;
+        c.receive_rumble(200, 100, 600).unwrap();
+        c.settings.game_rumble = false;
+        assert_eq!(c.snapshot()["rumble"], json!([0, 0]));
+        c.release();
+        c.settings.game_rumble = true;
+        assert_eq!(c.snapshot()["rumble"], json!([0, 0]));
+        assert!(c.receive_rumble(256, 0, 600).is_err());
+        assert!(c.receive_rumble(0, 0, 0).is_err());
+    }
     #[test]
     fn card_preview_is_isolated_from_active_settings_and_input() {
         let engine = Engine::new();

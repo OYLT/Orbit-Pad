@@ -35,11 +35,11 @@ final class TemplateCarousel extends FrameLayout {
         setClipChildren(false);setClipToPadding(false);setContentDescription("横向手柄配置卡片");setFocusable(true);setImportantForAccessibility(View.IMPORTANT_FOR_ACCESSIBILITY_YES);
         for(int i=0;i<entries.size();i++){
             final int index=i;Entry entry=entries.get(i);LinearLayout card=new LinearLayout(app);card.setOrientation(LinearLayout.VERTICAL);card.setPadding(app.dp(18),app.dp(18),app.dp(18),app.dp(14));
-            card.setBackground(app.rounded(0xff25212c,0xff51445f,28));card.setClipToOutline(true);card.setClickable(true);card.setFocusable(true);card.setContentDescription("选择配置 · "+entry.name);card.setOnClickListener(v->select(index,true));
-            TextView title=app.text(entry.name,19,0xffe6e0e9);title.setSingleLine(true);title.setEllipsize(android.text.TextUtils.TruncateAt.END);card.addView(title);
-            TextView subtitle=app.text(entry.id.equals("working")?"当前手柄":entry.saved||(entry.settings.optJSONObject("layout")!=null&&entry.settings.optJSONObject("layout").length()>0)?"已保存布局":"系统预设",11,0xffcac4d0);card.addView(subtitle);
+            card.setBackground(app.rounded(app.themeColor(0xff25212c),app.themeColor(0xff51445f),28));card.setClipToOutline(true);card.setClickable(true);card.setFocusable(true);card.setContentDescription("选择配置 · "+entry.name);card.setOnClickListener(v->select(index,true));
+            TextView title=app.text(entry.name,19,app.themeColor(0xffe6e0e9));title.setSingleLine(true);title.setEllipsize(android.text.TextUtils.TruncateAt.END);card.addView(title);
+            TextView subtitle=app.text(entry.id.equals("working")?"当前手柄":entry.saved||(entry.settings.optJSONObject("layout")!=null&&entry.settings.optJSONObject("layout").length()>0)?"已保存布局":"系统预设",11,app.themeColor(0xffcac4d0));card.addView(subtitle);
             ControllerPreview preview=new ControllerPreview(app,entry.settings,entry.name);LinearLayout.LayoutParams area=new LinearLayout.LayoutParams(-1,0,1);area.topMargin=app.dp(6);card.addView(preview,area);
-            TextView hint=app.text("左右滑动切换",11,0xffd0bcff);hint.setGravity(Gravity.RIGHT);card.addView(hint);
+            TextView hint=app.text("左右滑动切换",11,app.themeColor(0xffd0bcff));hint.setGravity(Gravity.RIGHT);card.addView(hint);
             previews.add(preview);cards.add(card);addView(card);
         }
     }

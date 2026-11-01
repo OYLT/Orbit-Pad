@@ -6,9 +6,11 @@ from pathlib import Path
 import subprocess
 import sys
 
+sys.stdout.reconfigure(encoding='utf-8', errors='replace')
+
 parser = argparse.ArgumentParser()
 parser.add_argument('--serial', required=True)
-parser.add_argument('--suite', choices=['glass', 'motion', 'edge', 'polish', 'layout'], default='glass')
+parser.add_argument('--suite', choices=['glass', 'motion', 'edge', 'polish', 'layout', 'landscape', 'canvas', 'themes', 'wallpaper', 'appearance'], default='glass')
 parser.add_argument('--output', default='artifacts/liquid-glass')
 args = parser.parse_args()
 root = Path(__file__).resolve().parents[1]
@@ -20,7 +22,7 @@ def run(*command, **kwargs):
     return subprocess.run([*adb, *command], check=True, **kwargs)
 
 api = int(subprocess.check_output([*adb, 'shell', 'getprop', 'ro.build.version.sdk'], text=True).strip())
-if api < 33:
+if api < 33 and args.suite not in ['landscape', 'canvas']:
     parser.error('The full shader comparison suite requires Android 13 or newer.')
 run('install', '-r', str(root / 'build/android-test/OrbitPad-device-tests.apk'))
 process = subprocess.Popen([*adb, 'shell', 'am', 'instrument', '-w', '-e', 'suite', args.suite,
@@ -57,7 +59,7 @@ passed = exit_code == 0 and any('orbit_result=PASS' in line for line in lines) a
 hyperos = subprocess.check_output([*adb, 'shell', 'getprop', 'ro.mi.os.version.name'], text=True).strip()
 report = {'ok': passed, 'model': model, 'api': int(api), 'hyperos': hyperos, 'suite': args.suite, 'checks': checks, 'performance': performance,
           'apkSha256': hashlib.sha256(apk.read_bytes()).hexdigest(),
-          'measurement': 'Native controller editor geometry, grouped gestures, independent saved previews, carousel switching and Gaussian fallback; functional checks, not a frame-rate benchmark.' if args.suite == 'layout' else 'Top Gaussian fade, foreground refraction and directional/interrupted page transitions.' if args.suite == 'polish' else 'Pixel comparisons during negative overscroll, mode changes, repeated crossings and release.' if args.suite == 'edge' else 'Scripted long presses, velocity changes, release/cancel, pointer loss and visibility changes.' if args.suite == 'motion' else 'Window FrameMetrics TOTAL_DURATION during eight alternating smooth scrolls per quality; smoke test, not Macrobenchmark.'}
+          'measurement': 'Day/night/system appearance, light/dark contrast, fixed Material bar and rail, full landscape cutout bounds, animated expansion cleanup and actual wallpaper-derived colors.' if args.suite == 'appearance' else 'Read-only wallpaper color service diagnostics.' if args.suite == 'wallpaper' else 'Theme card navigation, real-time lens pixels while dragging, continuous strength persistence, six HCT palettes, system dynamic colors, app-wide Material surfaces, recreation and rotation.' if args.suite == 'themes' else 'Full physical-screen canvas, four screen edges, transient bars, editor/play parity and editor drag bounds.' if args.suite == 'canvas' else 'Landscape and reverse-landscape rail/page geometry, safe insets, vertical drag navigation, keyboard visibility, rotation state and portrait restoration.' if args.suite == 'landscape' else 'Native controller editor geometry, grouped gestures, independent saved previews, carousel switching and Gaussian fallback; functional checks, not a frame-rate benchmark.' if args.suite == 'layout' else 'Top Gaussian fade, foreground refraction and directional/interrupted page transitions.' if args.suite == 'polish' else 'Pixel comparisons during negative overscroll, mode changes, repeated crossings and release.' if args.suite == 'edge' else 'Scripted long presses, velocity changes, release/cancel, pointer loss and visibility changes.' if args.suite == 'motion' else 'Window FrameMetrics TOTAL_DURATION during eight alternating smooth scrolls per quality; smoke test, not Macrobenchmark.'}
 (out / 'report.json').write_text(json.dumps(report, indent=2, ensure_ascii=False), encoding='utf-8')
 print(f'{len(checks)} checks; {len(performance)} performance samples; result={"PASS" if passed else "FAIL"}')
 sys.exit(0 if passed else 1)

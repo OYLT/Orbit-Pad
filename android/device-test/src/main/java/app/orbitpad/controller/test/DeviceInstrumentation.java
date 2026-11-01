@@ -35,11 +35,21 @@ public final class DeviceInstrumentation extends Instrumentation {
             activity = startActivitySync(intent);
             trace("wait-idle");
             waitForIdleSync();
+            if("wallpaper".equals(arguments.getString("suite"))){
+                android.app.WallpaperManager wm=android.app.WallpaperManager.getInstance(activity);
+                for(int i=0;i<3;i++){android.app.WallpaperColors colors=wm.getWallpaperColors(android.app.WallpaperManager.FLAG_SYSTEM);Bundle info=new Bundle();info.putString("orbit_wallpaper",String.valueOf(colors));sendStatus(1,info);SystemClock.sleep(700);}
+                result.putString("orbit_result","PASS");finish(Activity.RESULT_OK,result);return;
+            }
+            if("appearance".equals(arguments.getString("suite"))){appearanceModes();result.putString("orbit_result","PASS");finish(Activity.RESULT_OK,result);return;}
+            if("themes".equals(arguments.getString("suite"))){themeDesigns();result.putString("orbit_result","PASS");finish(Activity.RESULT_OK,result);return;}
+            if("forza".equals(arguments.getString("suite"))){forzaFeedback();result.putString("orbit_result","PASS");finish(Activity.RESULT_OK,result);return;}
             if("layout".equals(arguments.getString("suite"))){layoutCustomization();result.putString("orbit_result","PASS");finish(Activity.RESULT_OK,result);return;}
             if("connection".equals(arguments.getString("suite"))){persistentConnection();result.putString("orbit_result","PASS");finish(Activity.RESULT_OK,result);return;}
             if("racing".equals(arguments.getString("suite"))){racingControls();result.putString("orbit_result","PASS");finish(Activity.RESULT_OK,result);return;}
             if("native".equals(arguments.getString("suite"))){nativeGamepad();result.putString("orbit_result","PASS");finish(Activity.RESULT_OK,result);return;}
             if("polish".equals(arguments.getString("suite"))){glassPolish();result.putString("orbit_result","PASS");finish(Activity.RESULT_OK,result);return;}
+            if("landscape".equals(arguments.getString("suite"))){landscapeShell();result.putString("orbit_result","PASS");finish(Activity.RESULT_OK,result);return;}
+            if("canvas".equals(arguments.getString("suite"))){fullscreenCanvas();result.putString("orbit_result","PASS");finish(Activity.RESULT_OK,result);return;}
             if("edge".equals(arguments.getString("suite"))){dockEdge();result.putString("orbit_result","PASS");finish(Activity.RESULT_OK,result);return;}
             if("motion".equals(arguments.getString("suite"))){dockMotion();result.putString("orbit_result","PASS");finish(Activity.RESULT_OK,result);return;}
             if("glass".equals(arguments.getString("suite"))){glassDock();result.putString("orbit_result","PASS");finish(Activity.RESULT_OK,result);return;}
@@ -219,7 +229,7 @@ public final class DeviceInstrumentation extends Instrumentation {
             activity.getPreferences(0).edit().putString("templates_v1",templates.toString()).remove("preset_layouts_v1").remove("active_template_id").commit();applyLayoutConfig(defaults,"通用游戏");invokeActivity("finishEditor");waitNode("横向手柄配置卡片",5000);
             Object shell=member(activity,"shell"),carousel=member(shell,"templateCarousel");
             java.util.ArrayList<?> previews=(java.util.ArrayList<?>)member(carousel,"previews");
-            glassCheck("each-card-resolves-its-own-saved-layout",previewWidth(previews.get(3),"a")>260&&previewWidth(previews.get(4),"a")<40);
+            glassCheck("each-card-resolves-its-own-saved-layout",previewWidth(previews.get(previews.size()-2),"a")>260&&previewWidth(previews.get(previews.size()-1),"a")<40);
             glassShot("layout-home-cards").recycle();
             carouselSelect(carousel,1,true);SystemClock.sleep(110);
             java.util.ArrayList<?> cards=(java.util.ArrayList<?>)member(carousel,"cards");android.view.View outgoing=(android.view.View)cards.get(0);
@@ -232,7 +242,7 @@ public final class DeviceInstrumentation extends Instrumentation {
             Class<?> previewType=previews.get(0).getClass();java.lang.reflect.Method blur=previewType.getDeclaredMethod("gaussian",int[].class,int.class,int.class,float.class);blur.setAccessible(true);
             int[] impulse=new int[81];impulse[40]=0xffffffff;int[] filtered=(int[])blur.invoke(null,impulse,9,9,1f);
             glassCheck("legacy-gaussian-fallback-spreads-focus-symmetrically",(filtered[40]>>>24)>(filtered[39]>>>24)&&(filtered[39]>>>24)>0&&filtered[39]==filtered[41]&&filtered[31]==filtered[49]&&impulse[39]==0);
-            carouselSelect(carousel,3,false);SystemClock.sleep(200);glassCheck("card-selection-restores-wide-and-hidden-controls",core("{\"op\":\"snapshot\"}").getJSONObject("settings").getJSONObject("layout").getJSONObject("b").optBoolean("hidden"));
+            carouselSelect(carousel,previews.size()-2,false);SystemClock.sleep(200);glassCheck("card-selection-restores-wide-and-hidden-controls",core("{\"op\":\"snapshot\"}").getJSONObject("settings").getJSONObject("layout").getJSONObject("b").optBoolean("hidden"));
             glassCheck("switching-cards-does-not-overwrite-saved-templates",templates.toString().equals(activity.getPreferences(0).getString("templates_v1","")));
             glassShot("layout-saved-wide-card").recycle();
             final android.os.Handler uiHandler=(android.os.Handler)member(activity,"handler");final Runnable pollTask=(Runnable)member(activity,"poll");runOnMainSync(()->uiHandler.removeCallbacks(pollTask));
@@ -293,6 +303,210 @@ public final class DeviceInstrumentation extends Instrumentation {
     private void glassCheck(String name,boolean passed){
         if(!passed)throw new AssertionError(name);Bundle status=new Bundle();status.putString("orbit_glass",name);sendStatus(1,status);
     }
+    private void appTheme() throws Exception {
+        java.lang.reflect.Method method=activity.getClass().getDeclaredMethod("applyAppTheme");method.setAccessible(true);
+        runOnMainSync(()->{try{method.invoke(activity);}catch(Exception error){throw new RuntimeException(error);}});waitForIdleSync();SystemClock.sleep(350);
+    }
+    private void themeDesigns() throws Exception {
+        android.content.SharedPreferences prefs=activity.getPreferences(0);
+        String[] keys={"app_design","monet_preset","monet_dynamic","glass_quality","glass_refraction","glass_refraction_strength","appearance_mode"};
+        java.util.Map<String,?> saved=prefs.getAll();
+        try{
+            runOnMainSync(()->{activity.getWindow().addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);prefs.edit().putString("appearance_mode","dark").putString("app_design","liquid").putString("glass_quality","auto").remove("glass_refraction_strength").remove("glass_refraction_strength").putInt("glass_refraction",3).commit();});appTheme();
+            tapNode("导航主题");Rect liquid=bounds(waitNode("液态玻璃主题设置",5000)),material=bounds(waitNode("Material 3主题设置",5000));
+            glassCheck("theme-cards-use-staggered-columns",liquid.right<=material.left&&material.top>liquid.top&&liquid.height()!=material.height());glassShot("themes-waterfall").recycle();
+            tapNode("液态玻璃主题设置");glassCheck("liquid-opens-secondary-page",find(automation.getRootInActiveWindow(),"返回主题列表",false)!=null);
+            AccessibilityNodeInfo sliderNode=waitNode("Liquid Glass 折射强度",5000);
+            glassCheck("legacy-strength-migrates-to-continuous-slider",sliderNode.getRangeInfo().getCurrent()==1600&&sliderNode.getRangeInfo().getMax()==1600);
+            progress("Liquid Glass 折射强度",0);
+            Object shell=member(activity,"shell"),preview=member(shell,"glassPreview");android.view.View previewDock=(android.view.View)member(preview,"dock");
+            Rect previewRegion=new Rect();previewDock.getGlobalVisibleRect(previewRegion);glassCheck("live-preview-visible-with-slider",previewRegion.height()>40);
+            android.graphics.Bitmap zero=glassShot("themes-glass-zero");Rect slider=bounds(waitNode("Liquid Glass 折射强度",5000));
+            float x=slider.left+slider.width()*.22f,y=slider.exactCenterY();downTime=SystemClock.uptimeMillis();touch(MotionEvent.ACTION_DOWN,new int[]{0},new float[][]{{x,y}});
+            dragPath(new float[]{x,y},new float[]{slider.left+slider.width()*.71f,y},8,20);
+            float live=prefs.getFloat("glass_refraction_strength",-1);
+            glassCheck("slider-saves-intermediate-value-before-release",live>.6f&&live<1.5f&&Math.abs(live-1)>.01f);
+            android.graphics.Bitmap changed=glassShot("themes-glass-drag-live");glassCheck("actual-lens-pixels-change-before-release",pixelDifference(zero,changed,previewRegion)>1000);zero.recycle();changed.recycle();
+            touch(MotionEvent.ACTION_UP,new int[]{0},new float[][]{{slider.left+slider.width()*.71f,y}});
+            progress("Liquid Glass 折射强度",737);glassCheck("continuous-value-not-rounded-to-presets",Math.abs(prefs.getFloat("glass_refraction_strength",0)-.737f)<.0001f);
+            key(KeyEvent.KEYCODE_BACK);glassCheck("back-from-detail-keeps-theme-tab",waitNode("导航主题",5000).isSelected());waitNode("Material 3主题设置",5000);
+            tapNode("导航设置");SystemClock.sleep(400);glassCheck("glass-panel-removed-from-settings",find(automation.getRootInActiveWindow(),"Liquid Glass",false)==null&&find(automation.getRootInActiveWindow(),"Liquid Glass 折射强度",false)==null);
+            tapNode("导航主题");tapNode("Material 3主题设置");tapNode("使用 Material 3");
+            glassCheck("material-switch-is-app-wide",(Boolean)member(member(activity,"theme"),"material")&&((Integer)member(activity,"PRIMARY")).equals(member(member(activity,"theme"),"primary")));
+            String[] names={"鸢尾紫","海盐蓝","青玉绿","蔷薇粉","暖沙金","雾岩灰"};java.util.HashSet<Integer> colors=new java.util.HashSet<>();
+            for(String name:names){tapNode("Monet 配色"+name);colors.add((Integer)member(member(activity,"theme"),"primary"));glassCheck("preset-selected-"+name,waitNode("Monet 配色"+name,5000).isSelected()&&!prefs.getBoolean("monet_dynamic",true));}
+            glassCheck("six-presets-generate-distinct-tonal-palettes",colors.size()==6);
+            tapNode("Monet 配色青玉绿");glassShot("themes-material-jade").recycle();
+            tapNode("系统动态取色");SystemClock.sleep(500);glassCheck("dynamic-colors-use-wallpaper-or-system",prefs.getBoolean("monet_dynamic",false)&&(!"system".equals(member(member(activity,"theme"),"dynamicSource"))||((Integer)member(member(activity,"theme"),"primary"))==activity.getColor((Boolean)member(member(activity,"theme"),"dark")?android.R.color.system_accent1_200:android.R.color.system_accent1_600)));glassShot("themes-material-dynamic").recycle();
+            tapNode("导航主页");glassShot("themes-material-home").recycle();
+            shell=member(activity,"shell");Object backdrop=member(shell,"view");java.lang.reflect.Method quality=backdrop.getClass().getDeclaredMethod("quality");quality.setAccessible(true);
+            glassCheck("material-navigation-disables-glass-rendering",((Integer)quality.invoke(backdrop))==0);
+            tapNode("自定义按键布局");SystemClock.sleep(800);android.view.View editor=(android.view.View)member(member(activity,"layoutEditor"),"root");
+            glassCheck("material-editor-uses-shared-background",((android.graphics.drawable.ColorDrawable)editor.getBackground()).getColor()==((Integer)member(member(activity,"theme"),"background")));glassShot("themes-material-editor").recycle();
+            key(KeyEvent.KEYCODE_BACK);SystemClock.sleep(600);tapNode("导航主题");tapNode("液态玻璃主题设置");
+            progress("Liquid Glass 折射强度",0);progress("Liquid Glass 折射强度",737);glassShot("themes-preview-under-material").recycle();tapNode("使用液态玻璃");
+            glassCheck("switch-back-preserves-glass-strength",!((Boolean)member(member(activity,"theme"),"material"))&&Math.abs(prefs.getFloat("glass_refraction_strength",0)-.737f)<.0001f);
+            ActivityMonitor monitor=addMonitor(activity.getClass().getName(),null,false);runOnMainSync(()->activity.recreate());Activity recreated=waitForMonitorWithTimeout(monitor,7000);removeMonitor(monitor);if(recreated!=null)activity=recreated;SystemClock.sleep(800);
+            glassCheck("recreation-restores-secondary-page",waitNode("返回主题列表",5000)!=null&&waitNode("导航主题",5000).isSelected());
+            glassCheck("recreation-restores-continuous-strength",waitNode("Liquid Glass 折射强度",5000).getRangeInfo().getCurrent()==737);glassShot("themes-glass-restored").recycle();
+            key(KeyEvent.KEYCODE_BACK);waitNode("Material 3主题设置",5000);tapNode("Material 3主题设置");tapNode("Monet 配色海盐蓝");
+            int orientation=activity.getRequestedOrientation();runOnMainSync(()->activity.setRequestedOrientation(android.content.pm.ActivityInfo.SCREEN_ORIENTATION_LANDSCAPE));SystemClock.sleep(700);
+            glassCheck("landscape-keeps-design-and-secondary-page",waitNode("返回主题列表",5000)!=null&&(Boolean)member(member(activity,"theme"),"material"));glassShot("themes-material-landscape").recycle();runOnMainSync(()->activity.setRequestedOrientation(orientation));SystemClock.sleep(700);
+        }finally{
+            android.content.SharedPreferences.Editor restore=prefs.edit();for(String key:keys){Object value=saved.get(key);if(value==null)restore.remove(key);else if(value instanceof String)restore.putString(key,(String)value);else if(value instanceof Boolean)restore.putBoolean(key,(Boolean)value);else if(value instanceof Integer)restore.putInt(key,(Integer)value);else if(value instanceof Float)restore.putFloat(key,(Float)value);}restore.commit();appTheme();
+        }
+    }
+    private android.widget.Button textButton(android.view.View view,String name){
+        if(view instanceof android.widget.Button&&name.contentEquals(((android.widget.Button)view).getText()))return (android.widget.Button)view;
+        if(view instanceof android.view.ViewGroup){android.view.ViewGroup group=(android.view.ViewGroup)view;for(int i=0;i<group.getChildCount();i++){android.widget.Button found=textButton(group.getChildAt(i),name);if(found!=null)return found;}}return null;
+    }
+    private double luminance(int color){double result=0;double[] weights={.2126,.7152,.0722};int[] shifts={16,8,0};for(int i=0;i<3;i++){double v=((color>>shifts[i])&255)/255.;result+=weights[i]*(v<=.04045?v/12.92:Math.pow((v+.055)/1.055,2.4));}return result;}
+    private double contrast(int a,int b){double x=luminance(a),y=luminance(b);return (Math.max(x,y)+.05)/(Math.min(x,y)+.05);}
+    private void appearanceModes() throws Exception {
+        android.content.SharedPreferences prefs=activity.getPreferences(0);String[] keys={"appearance_mode","app_design","monet_dynamic","monet_preset"};java.util.Map<String,?> saved=prefs.getAll();
+        Configuration original=new Configuration(activity.getResources().getConfiguration());int requested=activity.getRequestedOrientation();
+        try{
+            runOnMainSync(()->activity.getWindow().addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON));tapNode("导航主题");
+            for(String design:new String[]{"liquid","material3"}){
+                prefs.edit().putString("app_design",design).putBoolean("monet_dynamic",false).commit();appTheme();
+                for(String[] mode:new String[][]{{"light","浅色"},{"dark","深色"}}){
+                    tapNode("选择颜色模式");tapNode(mode[1]);SystemClock.sleep(450);Object theme=member(activity,"theme");boolean dark=(Boolean)member(theme,"dark");int background=(Integer)member(theme,"background");
+                    glassCheck(design+"-"+mode[0]+"-selection",prefs.getString("appearance_mode","").equals(mode[0])&&dark==mode[0].equals("dark"));
+                    glassCheck(design+"-"+mode[0]+"-surface-luminance",dark?luminance(background)<.03:luminance(background)>.85);
+                    glassCheck(design+"-"+mode[0]+"-text-contrast",contrast(background,(Integer)member(theme,"onSurface"))>7&&contrast((Integer)member(theme,"primary"),(Integer)member(theme,"onPrimary"))>4.5);
+                    Object shell=member(activity,"shell");android.view.View root=(android.view.View)member(shell,"view"),page=(android.view.View)member(shell,"page"),nav=(android.view.View)member(shell,"materialNavigation"),dock=(android.view.View)member(shell,"glassDock");
+                    if(design.equals("material3")){glassCheck("fixed-material-bar-"+mode[0],dock.getVisibility()==android.view.View.GONE&&nav.getLeft()==0&&nav.getRight()==root.getWidth()&&nav.getBottom()==root.getHeight()&&page.getBottom()<=nav.getTop());}
+                    else glassCheck("liquid-keeps-floating-dock-"+mode[0],dock.getVisibility()==android.view.View.VISIBLE&&nav.getVisibility()==android.view.View.GONE);
+                    glassShot("appearance-"+design+"-"+mode[0]).recycle();
+                    tapNode("导航主页");SystemClock.sleep(400);glassShot("appearance-"+design+"-home-"+mode[0]).recycle();
+                    tapNode("自定义按键布局");SystemClock.sleep(650);android.view.View pad=(android.view.View)member(activity,"pad");glassCheck("controller-canvas-"+design+"-"+mode[0],((android.graphics.drawable.ColorDrawable)pad.getBackground()).getColor()==background);glassShot("appearance-"+design+"-editor-"+mode[0]).recycle();key(KeyEvent.KEYCODE_BACK);SystemClock.sleep(500);tapNode("导航主题");
+                }
+            }
+            tapNode("导航设置");tapNode("按键映射与手感设置");tapNode("手感调节");
+            android.app.AlertDialog settingsDialog=(android.app.AlertDialog)member(activity,"settingsDialog");
+            prefs.edit().putString("appearance_mode","light").commit();appTheme();
+            glassCheck("open-settings-dialog-follows-light-mode",((android.graphics.drawable.GradientDrawable)settingsDialog.getWindow().getDecorView().getBackground()).getColor().getDefaultColor()==((Integer)member(member(activity,"theme"),"surfaceHigh")));android.widget.Button mappingButton=textButton(settingsDialog.getWindow().getDecorView(),"按键映射");int fill=((android.graphics.drawable.GradientDrawable)((android.graphics.drawable.RippleDrawable)mappingButton.getBackground()).getDrawable(0)).getColor().getDefaultColor();glassCheck("open-dialog-button-updates-fill-and-contrast",fill==((Integer)member(member(activity,"theme"),"primary"))&&contrast(fill,mappingButton.getCurrentTextColor())>4.5);glassShot("appearance-light-settings-dialog").recycle();
+            prefs.edit().putString("appearance_mode","dark").commit();appTheme();
+            glassCheck("open-settings-dialog-follows-dark-mode",((android.graphics.drawable.GradientDrawable)settingsDialog.getWindow().getDecorView().getBackground()).getColor().getDefaultColor()==((Integer)member(member(activity,"theme"),"surfaceHigh")));key(KeyEvent.KEYCODE_BACK);tapNode("导航主题");
+            tapNode("选择颜色模式");tapNode("跟随系统深色模式");
+            for(int night:new int[]{Configuration.UI_MODE_NIGHT_NO,Configuration.UI_MODE_NIGHT_YES}){
+                Configuration config=new Configuration(original);config.uiMode=(config.uiMode&~Configuration.UI_MODE_NIGHT_MASK)|night;
+                runOnMainSync(()->{activity.getResources().updateConfiguration(config,activity.getResources().getDisplayMetrics());activity.onConfigurationChanged(config);});SystemClock.sleep(400);
+                glassCheck("follow-system-ui-mode-"+night,((Boolean)member(member(activity,"theme"),"dark"))==(night==Configuration.UI_MODE_NIGHT_YES));
+            }
+            runOnMainSync(()->{activity.getResources().updateConfiguration(original,activity.getResources().getDisplayMetrics());activity.onConfigurationChanged(original);});
+            prefs.edit().putString("appearance_mode","light").putString("app_design","material3").commit();appTheme();
+            Object shell=member(activity,"shell");android.view.View card=((android.view.View[])member(shell,"themeCards"))[1];runOnMainSync(()->card.performClick());SystemClock.sleep(90);
+            android.view.View scroll=(android.view.View)member(shell,"currentScroll");
+            glassCheck("theme-card-expands-with-animated-clip",(Boolean)member(shell,"themeExpansion")&&scroll.getClipBounds()!=null&&scroll.getClipBounds().width()<scroll.getWidth());motionShot("appearance-card-expanding").recycle();SystemClock.sleep(450);
+            glassCheck("expanded-page-cleans-up-source",!((Boolean)member(shell,"themeExpansion"))&&((android.view.ViewGroup)member(shell,"page")).getChildCount()==1&&scroll.getClipBounds()==null);
+            tapNode("系统动态取色");SystemClock.sleep(900);Object theme=member(activity,"theme");
+            android.app.WallpaperColors colors=android.app.WallpaperManager.getInstance(activity).getWallpaperColors(android.app.WallpaperManager.FLAG_SYSTEM);
+            glassCheck("wallpaper-service-provides-colors",colors!=null);
+            Class<?> helper=activity.getClassLoader().loadClass("app.orbitpad.controller.WallpaperPalette");java.lang.reflect.Method seed=helper.getDeclaredMethod("seed",android.app.WallpaperColors.class);seed.setAccessible(true);
+            int expected=(Integer)seed.invoke(null,colors);glassCheck("actual-wallpaper-seed-cached",prefs.getInt("wallpaper_seed",0)==expected&&"wallpaper".equals(member(theme,"dynamicSource")));
+            glassCheck("wallpaper-color-replaces-stale-system-purple",(Integer)member(theme,"primary")!=activity.getColor(android.R.color.system_accent1_600));glassShot("appearance-wallpaper-light").recycle();
+            Object watcher=member(activity,"wallpaperPalette");java.lang.reflect.Method refresh=watcher.getClass().getDeclaredMethod("refresh");refresh.setAccessible(true);runOnMainSync(()->{try{refresh.invoke(watcher);}catch(Exception e){throw new RuntimeException(e);}});SystemClock.sleep(600);glassCheck("wallpaper-refresh-keeps-page-and-colors",((Integer)member(member(activity,"theme"),"primary")).equals(member(theme,"primary"))&&waitNode("返回主题列表",5000)!=null);
+            key(KeyEvent.KEYCODE_BACK);SystemClock.sleep(500);glassCheck("theme-collapse-cleans-up-detail",((android.view.ViewGroup)member(shell,"page")).getChildCount()==1&&waitNode("Material 3主题设置",5000)!=null);
+            for(int orientation:new int[]{android.content.pm.ActivityInfo.SCREEN_ORIENTATION_LANDSCAPE,android.content.pm.ActivityInfo.SCREEN_ORIENTATION_REVERSE_LANDSCAPE}){
+                runOnMainSync(()->activity.setRequestedOrientation(orientation));SystemClock.sleep(800);
+                android.view.View root=(android.view.View)member(shell,"view"),page=(android.view.View)member(shell,"page"),nav=(android.view.View)member(shell,"materialNavigation");
+                glassCheck("fixed-full-height-material-rail-"+orientation,nav.getLeft()==0&&nav.getTop()==0&&nav.getBottom()==root.getHeight()&&page.getLeft()==nav.getRight()&&page.getRight()==root.getWidth());
+                android.widget.ScrollView current=(android.widget.ScrollView)member(shell,"currentScroll");glassCheck("landscape-ignores-status-and-cutout-insets-"+orientation,current.getPaddingTop()==0&&current.getPaddingLeft()==0&&current.getPaddingRight()==0&&activity.getWindow().getAttributes().layoutInDisplayCutoutMode==WindowManager.LayoutParams.LAYOUT_IN_DISPLAY_CUTOUT_MODE_ALWAYS);glassShot("appearance-landscape-"+orientation).recycle();
+            }
+        }finally{
+            runOnMainSync(()->{activity.getResources().updateConfiguration(original,activity.getResources().getDisplayMetrics());activity.onConfigurationChanged(original);activity.setRequestedOrientation(requested);});
+            android.content.SharedPreferences.Editor restore=prefs.edit();for(String key:keys){Object value=saved.get(key);if(value==null)restore.remove(key);else if(value instanceof String)restore.putString(key,(String)value);else if(value instanceof Boolean)restore.putBoolean(key,(Boolean)value);}restore.commit();appTheme();
+        }
+    }
+    private void landscapeShell() throws Exception {
+        int orientation=activity.getRequestedOrientation();String previousDesign=activity.getPreferences(0).getString("app_design",null);
+        try{
+            activity.getPreferences(0).edit().putString("app_design","liquid").commit();appTheme();
+            Object shell=member(activity,"shell");android.widget.LinearLayout dock=(android.widget.LinearLayout)member(shell,"glassDock");
+            android.view.View root=(android.view.View)member(shell,"view"),page=(android.view.View)member(shell,"page");
+            float density=activity.getResources().getDisplayMetrics().density;
+            int[] rotations={android.content.pm.ActivityInfo.SCREEN_ORIENTATION_LANDSCAPE,android.content.pm.ActivityInfo.SCREEN_ORIENTATION_REVERSE_LANDSCAPE};
+            for(int rotation:rotations){
+                runOnMainSync(()->activity.setRequestedOrientation(rotation));SystemClock.sleep(1400);tapNode("导航主页");SystemClock.sleep(700);
+                glassCheck("rail-is-vertical-"+rotation,dock.getOrientation()==android.widget.LinearLayout.VERTICAL&&dock.getHeight()>dock.getWidth()*2);
+                glassCheck("page-is-right-of-rail-"+rotation,page.getLeft()>=dock.getRight()+density*10&&page.getRight()==root.getWidth());
+                android.view.WindowInsets insets=root.getRootWindowInsets();
+                if(android.os.Build.VERSION.SDK_INT>=30){
+                    android.graphics.Insets safe=insets.getInsets(android.view.WindowInsets.Type.navigationBars()|android.view.WindowInsets.Type.displayCutout());
+                    glassCheck("landscape-ignores-cutout-insets-"+rotation,Math.abs(dock.getLeft()-density*12)<2&&((android.widget.ScrollView)member(shell,"currentScroll")).getPaddingLeft()==0&&activity.getWindow().getAttributes().layoutInDisplayCutoutMode==WindowManager.LayoutParams.LAYOUT_IN_DISPLAY_CUTOUT_MODE_ALWAYS);
+                    glassCheck("landscape-status-bar-hidden-"+rotation,!insets.isVisible(android.view.WindowInsets.Type.statusBars()));
+                }
+                for(int i=0;i<dock.getChildCount();i++)glassCheck("rail-target-size-"+rotation+"-"+i,dock.getChildAt(i).getHeight()>=density*48);
+                android.widget.ScrollView scroll=(android.widget.ScrollView)member(shell,"currentScroll");android.view.View body=(android.view.View)member(shell,"content");
+                glassCheck("landscape-no-bottom-dock-reservation-"+rotation,body.getPaddingBottom()<=density*24&&body.getPaddingTop()<=density*12);
+                int railHeight=dock.getHeight();runOnMainSync(()->scroll.scrollTo(0,250));SystemClock.sleep(500);
+                glassCheck("scroll-keeps-rail-expanded-"+rotation,dock.getHeight()==railHeight&&!((Boolean)member(dock,"compact")));
+                String[] names={"连接","主题","设置","主页"};
+                for(int i=0;i<names.length;i++){tapNode("导航"+names[i]);glassCheck("landscape-navigation-"+rotation+"-"+i,waitNode("导航"+names[i],5000).isSelected());}
+                SystemClock.sleep(900);Rect home=bounds(waitNode("导航主页",5000)),settings=bounds(waitNode("导航设置",5000));
+                float[] start={home.exactCenterX(),home.exactCenterY()},end={settings.exactCenterX(),settings.exactCenterY()};
+                downTime=SystemClock.uptimeMillis();touch(MotionEvent.ACTION_DOWN,new int[]{0},new float[][]{start});dragPath(start,end,20,18);
+                glassCheck("vertical-drag-previews-without-navigation-"+rotation,waitNode("导航主页",5000).isSelected()&&lensBounds(dock).centerY()>dock.getHeight()*.6f);
+                touch(MotionEvent.ACTION_UP,new int[]{0},new float[][]{end});SystemClock.sleep(1200);
+                glassCheck("vertical-drag-selects-settings-"+rotation,waitNode("导航设置",5000).isSelected()&&Math.abs(dock.getTranslationY())<density*.5f);
+                glassShot("landscape-settings-"+rotation).recycle();tapNode("导航主页");
+                android.widget.ScrollView homeScroll=(android.widget.ScrollView)member(shell,"currentScroll");runOnMainSync(()->homeScroll.scrollTo(0,0));
+                glassShot("landscape-home-"+rotation).recycle();
+            }
+            tapNode("导航连接");tapNode("手动配对");
+            android.widget.EditText address=(android.widget.EditText)member(shell,"address");
+            runOnMainSync(()->{address.setText("192.168.1.77:3210");address.requestFocus();((android.view.inputmethod.InputMethodManager)activity.getSystemService(android.content.Context.INPUT_METHOD_SERVICE)).showSoftInput(address,android.view.inputmethod.InputMethodManager.SHOW_IMPLICIT);});
+            SystemClock.sleep(1400);glassCheck("landscape-keyboard-hides-rail",dock.getVisibility()==android.view.View.GONE);glassShot("landscape-keyboard").recycle();
+            key(KeyEvent.KEYCODE_BACK);SystemClock.sleep(900);glassCheck("landscape-keyboard-dismiss-restores-rail",dock.getVisibility()==android.view.View.VISIBLE);
+            runOnMainSync(()->activity.setRequestedOrientation(android.content.pm.ActivityInfo.SCREEN_ORIENTATION_PORTRAIT));SystemClock.sleep(1400);
+            glassCheck("rotation-preserves-form-and-selection",address==member(shell,"address")&&"192.168.1.77:3210".contentEquals(address.getText())&&waitNode("导航连接",5000).isSelected());
+            glassCheck("portrait-restores-bottom-dock",dock.getOrientation()==android.widget.LinearLayout.HORIZONTAL&&page.getLeft()==0&&dock.getWidth()>dock.getHeight()*2);
+            if(android.os.Build.VERSION.SDK_INT>=30)glassCheck("portrait-restores-status-bar",root.getRootWindowInsets().isVisible(android.view.WindowInsets.Type.statusBars()));
+            glassShot("portrait-restored").recycle();
+            glassCheck("landscape-renderers-stay-active",!((Boolean)member(root,"failed"))&&!((Boolean)member(dock,"contentFailed")));
+        }finally{android.content.SharedPreferences.Editor restore=activity.getPreferences(0).edit();if(previousDesign==null)restore.remove("app_design");else restore.putString("app_design",previousDesign);restore.commit();runOnMainSync(()->activity.setRequestedOrientation(orientation));SystemClock.sleep(800);appTheme();}
+    }
+    private void fullscreenCanvas() throws Exception {
+        String[] keys={"rust_settings","template_name","templates_v1","active_template_id","preset_layouts_v1"};String[] old=new String[keys.length];for(int i=0;i<keys.length;i++)old[i]=activity.getPreferences(0).getString(keys[i],null);
+        org.json.JSONObject original=core("{\"op\":\"snapshot\"}").getJSONObject("settings");
+        android.os.Handler handler=(android.os.Handler)member(activity,"handler");Runnable poll=(Runnable)member(activity,"poll");
+        int orientation=activity.getRequestedOrientation();
+        try{
+            runOnMainSync(()->handler.removeCallbacks(poll));
+            org.json.JSONObject config=core("{\"op\":\"preset\",\"name\":\"general\"}");config.put("group_face",false);
+            config.put("layout",new org.json.JSONObject("{\"a\":{\"x\":0,\"y\":0},\"b\":{\"x\":1000,\"y\":0},\"x\":{\"x\":0,\"y\":450},\"y\":{\"x\":1000,\"y\":450}}"));
+            for(int rotation:new int[]{android.content.pm.ActivityInfo.SCREEN_ORIENTATION_LANDSCAPE,android.content.pm.ActivityInfo.SCREEN_ORIENTATION_REVERSE_LANDSCAPE}){
+                applyLayoutConfig(config,"全屏测试");invokeActivity("openController");runOnMainSync(()->activity.setRequestedOrientation(rotation));SystemClock.sleep(1200);
+                android.view.View pad=(android.view.View)member(activity,"pad");int[] xy=new int[2];runOnMainSync(()->pad.getLocationOnScreen(xy));
+                if(android.os.Build.VERSION.SDK_INT>=30){
+                    Rect screen=activity.getWindowManager().getCurrentWindowMetrics().getBounds();
+                    glassCheck("play-canvas-fills-window-"+rotation,pad.getWidth()==screen.width()&&pad.getHeight()==screen.height()&&xy[0]==screen.left&&xy[1]==screen.top);
+                    glassCheck("cutout-always-allowed-"+rotation,activity.getWindow().getAttributes().layoutInDisplayCutoutMode==WindowManager.LayoutParams.LAYOUT_IN_DISPLAY_CUTOUT_MODE_ALWAYS);
+                }
+                glassCheck("play-canvas-has-no-safe-padding-"+rotation,pad.getPaddingLeft()+pad.getPaddingTop()+pad.getPaddingRight()+pad.getPaddingBottom()==0);
+                Rect a=bounds(waitNode("A",5000)),b=bounds(waitNode("B",5000)),x=bounds(waitNode("X",5000)),y=bounds(waitNode("Y",5000));
+                glassCheck("buttons-reach-all-four-screen-edges-"+rotation,a.left==xy[0]&&a.top==xy[1]&&b.right==xy[0]+pad.getWidth()&&b.top==xy[1]&&x.left==xy[0]&&x.bottom==xy[1]+pad.getHeight()&&y.right==xy[0]+pad.getWidth()&&y.bottom==xy[1]+pad.getHeight());
+                glassShot("canvas-play-"+rotation).recycle();
+                if(android.os.Build.VERSION.SDK_INT>=30){
+                    runOnMainSync(()->activity.getWindow().getInsetsController().show(android.view.WindowInsets.Type.systemBars()));SystemClock.sleep(700);
+                    glassCheck("transient-bars-do-not-move-buttons-"+rotation,a.equals(bounds(waitNode("A",5000)))&&y.equals(bounds(waitNode("Y",5000))));
+                    invokeActivity("immersive");
+                }
+                invokeActivity("openEditor");runOnMainSync(()->activity.setRequestedOrientation(rotation));SystemClock.sleep(900);
+                android.view.View editorPad=(android.view.View)member(activity,"pad");Object editor=member(activity,"layoutEditor");android.view.View root=(android.view.View)member(editor,"root");
+                glassCheck("editor-reuses-fullscreen-play-coordinates-"+rotation,a.equals(bounds(waitNode("A",5000)))&&y.equals(bounds(waitNode("Y",5000)))&&editorPad.getWidth()==root.getWidth()&&editorPad.getHeight()==root.getHeight());
+                java.lang.reflect.Method begin=editor.getClass().getDeclaredMethod("begin",String.class),drag=editor.getClass().getDeclaredMethod("drag",float.class,float.class,boolean.class),end=editor.getClass().getDeclaredMethod("end");begin.setAccessible(true);drag.setAccessible(true);end.setAccessible(true);
+                runOnMainSync(()->{try{begin.invoke(editor,"a");drag.invoke(editor,root.getWidth()*2f,root.getHeight()*2f,false);end.invoke(editor);}catch(Exception error){throw new RuntimeException(error);}});waitForIdleSync();
+                Rect moved=bounds(waitNode("A",5000));glassCheck("editor-drag-reaches-physical-bottom-right-"+rotation,moved.right==xy[0]+root.getWidth()&&moved.bottom==xy[1]+root.getHeight());
+                glassShot("canvas-editor-"+rotation).recycle();
+            }
+        }finally{
+            applyLayoutConfig(original,old[1]==null?"通用游戏":old[1]);invokeActivity("finishEditor");
+            android.content.SharedPreferences.Editor restore=activity.getPreferences(0).edit();for(int i=0;i<keys.length;i++){if(old[i]==null)restore.remove(keys[i]);else restore.putString(keys[i],old[i]);}restore.commit();
+            runOnMainSync(()->{activity.setRequestedOrientation(orientation);handler.post(poll);});
+        }
+    }
     private android.graphics.Bitmap glassShot(String name) throws Exception {
         waitForIdleSync();SystemClock.sleep(350);android.graphics.Bitmap bitmap=automation.takeScreenshot();
         java.io.File dir=new java.io.File(getTargetContext().getExternalFilesDir(null),"glass-test");dir.mkdirs();
@@ -307,27 +521,30 @@ public final class DeviceInstrumentation extends Instrumentation {
     }
     private void glassDock() throws Exception {
         String previous=activity.getPreferences(0).getString("glass_quality",null);
+        boolean hadContinuous=activity.getPreferences(0).contains("glass_refraction_strength");float previousContinuous=activity.getPreferences(0).getFloat("glass_refraction_strength",1);
         boolean hadStrength=activity.getPreferences(0).contains("glass_refraction");int previousStrength=activity.getPreferences(0).getInt("glass_refraction",2);
+        String previousDesign=activity.getPreferences(0).getString("app_design",null);
         android.widget.FrameLayout page=null;android.view.View probe=null;
         try{
+            activity.getPreferences(0).edit().putString("app_design","liquid").commit();appTheme();
             Object shell=member(activity,"shell");android.view.View dock=(android.view.View)member(shell,"glassDock");
             android.view.View root=(android.view.View)member(shell,"view");page=(android.widget.FrameLayout)member(shell,"page");
-            runOnMainSync(()->{activity.getWindow().addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);activity.getPreferences(0).edit().putString("glass_quality","auto").putInt("glass_refraction",2).commit();root.invalidate();dock.invalidate();});
+            runOnMainSync(()->{activity.getWindow().addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);activity.getPreferences(0).edit().putString("glass_quality","auto").remove("glass_refraction_strength").putInt("glass_refraction",2).commit();root.invalidate();dock.invalidate();});
             glassCheck("dock-minimum-touch-height",dock.getHeight()/activity.getResources().getDisplayMetrics().density>=60);
             glassCheck("home-selected",waitNode("导航主页",5000).isSelected());
             android.widget.ScrollView scroll=(android.widget.ScrollView)member(shell,"currentScroll");
             runOnMainSync(()->scroll.scrollTo(0,220));SystemClock.sleep(300);int savedScroll=scroll.getScrollY();
-            glassShot("home-scrolled").recycle();tapNode("导航设置");
-            glassCheck("settings-selected",waitNode("导航设置",5000).isSelected());
-            String[] strengths={"关闭","轻柔","标准","强烈"};
-            for(int level=0;level<4;level++){
-                tapNode("折射强度"+strengths[level]);
-                glassCheck("strength-choice-"+level,waitNode("折射强度"+strengths[level],5000).isChecked()&&activity.getPreferences(0).getInt("glass_refraction",-1)==level);
+            glassShot("home-scrolled").recycle();tapNode("导航主题");tapNode("液态玻璃主题设置");
+            glassCheck("theme-detail-selected",waitNode("导航主题",5000).isSelected());
+            int[] strengths={0,500,1000,1600};
+            for(int value:strengths){
+                progress("Liquid Glass 折射强度",value);
+                glassCheck("strength-choice-"+value,Math.abs(activity.getPreferences(0).getFloat("glass_refraction_strength",-1)-value/1000f)<.0001f);
             }
-            glassShot("settings").recycle();tapNode("关于 Orbit Pad");waitContains("版本 0.5.0",5000);
+            glassShot("theme-glass-settings").recycle();tapNode("导航设置");tapNode("关于 Orbit Pad");waitContains("版本 0.5.0",5000);
             glassCheck("about-embedded-in-settings",waitNode("导航设置",5000).isSelected());glassShot("about-expanded").recycle();
             key(KeyEvent.KEYCODE_BACK);glassCheck("back-collapses-about",waitNode("导航设置",5000).isSelected()&&find(automation.getRootInActiveWindow(),"组件与隐私",false)==null);
-            tapNode("导航主页");tapNode("导航设置");glassCheck("strength-survives-navigation",waitNode("折射强度强烈",5000).isChecked());
+            tapNode("导航主题");tapNode("液态玻璃主题设置");glassCheck("strength-survives-navigation",waitNode("Liquid Glass 折射强度",5000).getRangeInfo().getCurrent()==1600);
             tapNode("导航主页");
             android.widget.ScrollView restored=(android.widget.ScrollView)member(shell,"currentScroll");
             glassCheck("tab-scroll-restored",Math.abs(restored.getScrollY()-savedScroll)<3);
@@ -369,7 +586,7 @@ public final class DeviceInstrumentation extends Instrumentation {
                 }
             };
             android.view.View finalProbe=probe;android.widget.FrameLayout finalPage=page;
-            runOnMainSync(()->{finalPage.addView(finalProbe,new android.widget.FrameLayout.LayoutParams(-1,-1));activity.getPreferences(0).edit().putString("glass_quality","auto").putInt("glass_refraction",2).commit();root.invalidate();dock.invalidate();});
+            runOnMainSync(()->{finalPage.addView(finalProbe,new android.widget.FrameLayout.LayoutParams(-1,-1));activity.getPreferences(0).edit().putString("glass_quality","auto").remove("glass_refraction_strength").putInt("glass_refraction",2).commit();root.invalidate();dock.invalidate();});
             int[] location=new int[2];dock.getLocationOnScreen(location);Rect region=new Rect(location[0],location[1],location[0]+dock.getWidth(),location[1]+dock.getHeight());
             android.graphics.Bitmap full=glassShot("probe-full");
             long bottomBrightness=0;int bottomSamples=0;
@@ -381,16 +598,16 @@ public final class DeviceInstrumentation extends Instrumentation {
             runOnMainSync(()->{activity.getPreferences(0).edit().putString("glass_quality","standard").commit();root.invalidate();dock.invalidate();});
             android.graphics.Bitmap standard=glassShot("probe-standard");
             if(android.os.Build.VERSION.SDK_INT>=33)glassCheck("refraction-changes-edge-pixels",pixelDifference(full,standard,region)>10000);
-            runOnMainSync(()->{activity.getPreferences(0).edit().putString("glass_quality","auto").putInt("glass_refraction",0).commit();root.invalidate();dock.invalidate();});
+            runOnMainSync(()->{activity.getPreferences(0).edit().putString("glass_quality","auto").remove("glass_refraction_strength").putInt("glass_refraction",0).commit();root.invalidate();dock.invalidate();});
             android.graphics.Bitmap off=glassShot("probe-strength-0");glassCheck("zero-strength-keeps-blur",pixelDifference(off,standard,region)<10000);
             android.graphics.Bitmap last=off;
             for(int level=1;level<=3;level++){
-                final int value=level;runOnMainSync(()->{activity.getPreferences(0).edit().putInt("glass_refraction",value).commit();root.invalidate();dock.invalidate();});
+                final int value=level;runOnMainSync(()->{activity.getPreferences(0).edit().remove("glass_refraction_strength").putInt("glass_refraction",value).commit();root.invalidate();dock.invalidate();});
                 android.graphics.Bitmap current=glassShot("probe-strength-"+level);glassCheck("strength-visibly-changes-"+level,pixelDifference(last,current,region)>10000);
                 if(last!=off)last.recycle();last=current;
             }
             last.recycle();off.recycle();
-            runOnMainSync(()->{activity.getPreferences(0).edit().putInt("glass_refraction",2).commit();root.invalidate();dock.invalidate();});
+            runOnMainSync(()->{activity.getPreferences(0).edit().remove("glass_refraction_strength").putInt("glass_refraction",2).commit();root.invalidate();dock.invalidate();});
             runOnMainSync(()->{activity.getPreferences(0).edit().putString("glass_quality","simple").commit();root.invalidate();dock.invalidate();});
             android.graphics.Bitmap simple=glassShot("probe-simple");
             glassCheck("blur-samples-real-background",pixelDifference(standard,simple,region)>100000);
@@ -405,15 +622,15 @@ public final class DeviceInstrumentation extends Instrumentation {
             tapNode("导航设置");glassShot("settings").recycle();
             tapNode("导航主页");
             glassPerformance(root,dock,(android.widget.ScrollView)member(shell,"currentScroll"));
-            tapNode("导航设置");tapNode("折射强度强烈");tapNode("关于 Orbit Pad");runOnMainSync(()->activity.recreate());SystemClock.sleep(900);
+            tapNode("导航主题");tapNode("液态玻璃主题设置");progress("Liquid Glass 折射强度",1600);tapNode("导航设置");tapNode("关于 Orbit Pad");runOnMainSync(()->activity.recreate());SystemClock.sleep(900);
             glassCheck("activity-recreation-keeps-page",find(automation.getRootInActiveWindow(),"关于 Orbit Pad",false)!=null);
             glassCheck("activity-recreation-keeps-selection",waitNode("导航设置",5000).isSelected());
             glassCheck("activity-recreation-keeps-about-expanded","已展开".contentEquals(waitNode("关于 Orbit Pad",5000).getStateDescription()));
-            key(KeyEvent.KEYCODE_BACK);glassCheck("strength-survives-recreation",waitNode("折射强度强烈",5000).isChecked());glassShot("settings").recycle();
+            key(KeyEvent.KEYCODE_BACK);glassCheck("strength-survives-recreation",activity.getPreferences(0).getFloat("glass_refraction_strength",0)==1.6f);glassShot("settings").recycle();
             tapNode("导航主页");
         }finally{
             if(probe!=null){android.widget.FrameLayout cleanup=page;android.view.View child=probe;runOnMainSync(()->cleanup.removeView(child));}
-            android.content.SharedPreferences.Editor restore=activity.getPreferences(0).edit();if(previous==null)restore.remove("glass_quality");else restore.putString("glass_quality",previous);if(hadStrength)restore.putInt("glass_refraction",previousStrength);else restore.remove("glass_refraction");restore.commit();
+            android.content.SharedPreferences.Editor restore=activity.getPreferences(0).edit();if(previous==null)restore.remove("glass_quality");else restore.putString("glass_quality",previous);if(hadStrength)restore.remove("glass_refraction_strength").putInt("glass_refraction",previousStrength);else restore.remove("glass_refraction");if(hadContinuous)restore.putFloat("glass_refraction_strength",previousContinuous);else restore.remove("glass_refraction_strength");if(previousDesign==null)restore.remove("app_design");else restore.putString("app_design",previousDesign);restore.commit();
         }
     }
     private android.graphics.RectF lensBounds(android.view.View dock) throws Exception {
@@ -430,11 +647,12 @@ public final class DeviceInstrumentation extends Instrumentation {
     }
     private void dockMotion() throws Exception {
         String quality=activity.getPreferences(0).getString("glass_quality",null);
+        boolean hadContinuous=activity.getPreferences(0).contains("glass_refraction_strength");float previousContinuous=activity.getPreferences(0).getFloat("glass_refraction_strength",1);
         boolean hadStrength=activity.getPreferences(0).contains("glass_refraction");int strength=activity.getPreferences(0).getInt("glass_refraction",2);
         try{
             Object shell=member(activity,"shell");android.view.View dock=(android.view.View)member(shell,"glassDock");android.view.View root=(android.view.View)member(shell,"view");
             float density=activity.getResources().getDisplayMetrics().density;
-            runOnMainSync(()->{activity.getPreferences(0).edit().putString("glass_quality","auto").putInt("glass_refraction",2).commit();activity.getWindow().addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);root.invalidate();dock.invalidate();});
+            runOnMainSync(()->{activity.getPreferences(0).edit().putString("glass_quality","auto").remove("glass_refraction_strength").putInt("glass_refraction",2).commit();activity.getWindow().addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);root.invalidate();dock.invalidate();});
             tapNode("导航主页");SystemClock.sleep(1100);
             Rect h=bounds(waitNode("导航主页",5000)),theme=bounds(waitNode("导航主题",5000)),settings=bounds(waitNode("导航设置",5000)),connection=bounds(waitNode("导航连接",5000));
             float[] homePoint={h.exactCenterX(),h.exactCenterY()},themePoint={theme.exactCenterX(),theme.exactCenterY()},settingsPoint={settings.exactCenterX(),settings.exactCenterY()},connectionPoint={connection.exactCenterX(),connection.exactCenterY()};
@@ -485,7 +703,7 @@ public final class DeviceInstrumentation extends Instrumentation {
             glassCheck("motion-renderer-stays-active",!((Boolean)member(root,"failed")));motionShot("motion-settled").recycle();
         }finally{
             android.content.SharedPreferences.Editor restore=activity.getPreferences(0).edit();if(quality==null)restore.remove("glass_quality");else restore.putString("glass_quality",quality);
-            if(hadStrength)restore.putInt("glass_refraction",strength);else restore.remove("glass_refraction");restore.commit();
+            if(hadStrength)restore.remove("glass_refraction_strength").putInt("glass_refraction",strength);else restore.remove("glass_refraction");if(hadContinuous)restore.putFloat("glass_refraction_strength",previousContinuous);else restore.remove("glass_refraction_strength");restore.commit();
         }
     }
     private float sliderPosition(android.view.View dock) throws Exception {
@@ -531,6 +749,7 @@ public final class DeviceInstrumentation extends Instrumentation {
     }
     private void glassPolish() throws Exception {
         String quality=activity.getPreferences(0).getString("glass_quality",null);
+        boolean hadContinuous=activity.getPreferences(0).contains("glass_refraction_strength");float previousContinuous=activity.getPreferences(0).getFloat("glass_refraction_strength",1);
         boolean hadStrength=activity.getPreferences(0).contains("glass_refraction");int strength=activity.getPreferences(0).getInt("glass_refraction",2);
         Object shell=member(activity,"shell");android.view.View root=(android.view.View)member(shell,"view"),dock=(android.view.View)member(shell,"glassDock");
         android.widget.FrameLayout page=(android.widget.FrameLayout)member(root,"page");
@@ -541,7 +760,7 @@ public final class DeviceInstrumentation extends Instrumentation {
         android.view.View stripes=new android.view.View(activity){final android.graphics.Paint p=new android.graphics.Paint();
             @Override protected void onDraw(android.graphics.Canvas c){for(int x=0;x<getWidth();x+=(int)(density*4)){p.setColor((x/(int)(density*4)%2)==0?0xfff4d077:0xff286aa8);c.drawRect(x,0,x+density*4,getHeight(),p);}}};
         try{
-            runOnMainSync(()->{activity.getPreferences(0).edit().putString("glass_quality","auto").putInt("glass_refraction",2).commit();activity.getWindow().addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);root.invalidate();dock.invalidate();});
+            runOnMainSync(()->{activity.getPreferences(0).edit().putString("glass_quality","auto").remove("glass_refraction_strength").putInt("glass_refraction",2).commit();activity.getWindow().addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);root.invalidate();dock.invalidate();});
             tapNode("导航主页");SystemClock.sleep(800);
             android.widget.ScrollView scroll=(android.widget.ScrollView)member(shell,"currentScroll");
             runOnMainSync(()->{scroll.scrollTo(0,0);page.addView(stripes,new android.widget.FrameLayout.LayoutParams(-1,-1));});
@@ -602,7 +821,7 @@ public final class DeviceInstrumentation extends Instrumentation {
         }finally{
             runOnMainSync(()->{page.removeView(stripes);try{contentFailed.setBoolean(dock,false);}catch(Exception ignored){}dock.invalidate();});
             android.content.SharedPreferences.Editor restore=activity.getPreferences(0).edit();if(quality==null)restore.remove("glass_quality");else restore.putString("glass_quality",quality);
-            if(hadStrength)restore.putInt("glass_refraction",strength);else restore.remove("glass_refraction");restore.commit();
+            if(hadStrength)restore.remove("glass_refraction_strength").putInt("glass_refraction",strength);else restore.remove("glass_refraction");if(hadContinuous)restore.putFloat("glass_refraction_strength",previousContinuous);else restore.remove("glass_refraction_strength");restore.commit();
         }
     }
     private void glassPerformance(android.view.View root,android.view.View dock,android.widget.ScrollView scroll) throws Exception {
@@ -665,25 +884,58 @@ public final class DeviceInstrumentation extends Instrumentation {
         java.lang.reflect.Method target=activity.getClass().getDeclaredMethod(method);target.setAccessible(true);
         runOnMainSync(()->{try{target.invoke(activity);}catch(Exception e){throw new RuntimeException(e);}});waitForIdleSync();
     }
+    private void waitRumble(boolean running) throws Exception {
+        long deadline=SystemClock.uptimeMillis()+3000;while(SystemClock.uptimeMillis()<deadline){if(((Integer)member(member(activity,"gameRumble"),"amplitude")>0)==running)return;SystemClock.sleep(40);}throw new AssertionError("Game vibration state did not become "+running);
+    }
+    private void forzaFeedback() throws Exception {
+        String[] keys={"rust_settings","template_name","templates_v1","active_template_id","preset_layouts_v1"};String[] old=new String[keys.length];for(int i=0;i<keys.length;i++)old[i]=activity.getPreferences(0).getString(keys[i],null);
+        org.json.JSONObject original=core("{\"op\":\"snapshot\"}").getJSONObject("settings");
+        try{
+            org.json.JSONObject config=core("{\"op\":\"preset\",\"name\":\"forza\"}");applyLayoutConfig(config,"极限竞速：地平线");
+            connect(arguments.getString("address"),arguments.getString("code"));waitNode("A",15000);SystemClock.sleep(500);
+            Rect a=bounds(waitNode("A",5000)),rt=bounds(waitNode("RT 模拟扳机",5000)),lt=bounds(waitNode("LT 模拟扳机",5000)),settings=bounds(waitNode("手柄设置",5000));
+            android.view.View pad=(android.view.View)member(activity,"pad");int[] location=new int[2];runOnMainSync(()->pad.getLocationOnScreen(location));
+            glassCheck("forza-a-round-upper-right-and-pedals-aligned",Math.abs(a.width()-a.height())<=2&&a.centerX()>location[0]+pad.getWidth()*.8f&&rt.top>a.bottom&&Math.abs(a.width()-rt.width())<=2&&Math.abs(lt.width()-a.width())<=2&&Math.abs(lt.top-a.top)<=2&&Math.abs(lt.bottom-rt.bottom)<=2);
+            glassCheck("play-settings-centered-at-the-top",Math.abs(settings.centerX()-(location[0]+pad.getWidth()/2))<=2&&settings.top<location[1]+pad.getHeight()*.1f);
+            float[] point={a.exactCenterX(),a.exactCenterY()};downTime=SystemClock.uptimeMillis();touch(MotionEvent.ACTION_DOWN,new int[]{0},new float[][]{point});phase("forza-a-held","a","true");
+            trace("game-rumble-on");waitRumble(true);
+            org.json.JSONArray motors=core("{\"op\":\"snapshot\"}").getJSONArray("rumble");glassCheck("xinput-motor-pair-reaches-android",motors.getInt(0)==128&&motors.getInt(1)==64);phase("forza-rumble-running","a","true");
+            touch(MotionEvent.ACTION_UP,new int[]{0},new float[][]{point});invokeActivity("openEditor");SystemClock.sleep(400);waitRumble(false);
+            Object editor=member(activity,"layoutEditor");android.view.View toolbar=(android.view.View)member(editor,"toolbar"),root=(android.view.View)member(editor,"root");int[] toolbarAt=new int[2],rootAt=new int[2];runOnMainSync(()->{toolbar.getLocationOnScreen(toolbarAt);root.getLocationOnScreen(rootAt);});
+            glassCheck("editor-toolbar-centered-at-the-top",Math.abs(toolbarAt[0]+toolbar.getWidth()/2-(rootAt[0]+root.getWidth()/2))<=2&&toolbarAt[1]-rootAt[1]<activity.getResources().getDisplayMetrics().density*20);
+            glassCheck("forza-editor-keeps-exact-play-bounds",a.equals(bounds(waitNode("A",5000))));phase("forza-editor-centered","","true");
+            invokeActivity("finishEditor");invokeActivity("openController");SystemClock.sleep(300);tapNode("手柄设置");tapNode("手感调节");tapNode("游戏震动反馈");key(KeyEvent.KEYCODE_BACK);waitRumble(false);
+            a=bounds(waitNode("A",5000));point=new float[]{a.exactCenterX(),a.exactCenterY()};downTime=SystemClock.uptimeMillis();touch(MotionEvent.ACTION_DOWN,new int[]{0},new float[][]{point});trace("game-rumble-on");SystemClock.sleep(450);
+            glassCheck("game-rumble-switch-suppresses-real-game-feedback",((Integer)member(member(activity,"gameRumble"),"amplitude"))==0&&core("{\"op\":\"snapshot\"}").getJSONArray("rumble").getInt(0)==0);phase("forza-rumble-disabled","a","true");touch(MotionEvent.ACTION_UP,new int[]{0},new float[][]{point});
+            tapNode("手柄设置");tapNode("手感调节");tapNode("游戏震动反馈");key(KeyEvent.KEYCODE_BACK);
+            a=bounds(waitNode("A",5000));point=new float[]{a.exactCenterX(),a.exactCenterY()};downTime=SystemClock.uptimeMillis();touch(MotionEvent.ACTION_DOWN,new int[]{0},new float[][]{point});trace("game-rumble-on");waitRumble(true);phase("forza-rumble-reenabled","a","true");
+            key(KeyEvent.KEYCODE_HOME);SystemClock.sleep(700);waitRumble(false);phase("forza-background-stops-rumble","","false");trace("resume-activity");SystemClock.sleep(1800);waitNode("A",15000);waitRumble(false);phase("forza-resume-starts-neutral","","true");
+            returnToNative();phase("forza-disconnected","","false");
+        }finally{
+            applyLayoutConfig(original,old[1]==null?"通用游戏":old[1]);android.content.SharedPreferences.Editor restore=activity.getPreferences(0).edit();for(int i=0;i<keys.length;i++){if(old[i]==null)restore.remove(keys[i]);else restore.putString(keys[i],old[i]);}restore.commit();
+        }
+    }
     private void racingControls() throws Exception {
         String saved=activity.getPreferences(0).getString("rust_settings",null);
         String savedTemplate=activity.getPreferences(0).getString("template_name","通用游戏");
         if(savedTemplate.equals("racing-test"))savedTemplate="通用游戏";
         final String templateName=savedTemplate;
         org.json.JSONObject original=core("{\"op\":\"snapshot\"}").getJSONObject("settings");
+        String[] protectedKeys={"templates_v1","preset_layouts_v1","active_template_id"};String[] protectedValues=new String[protectedKeys.length];for(int i=0;i<protectedKeys.length;i++)protectedValues[i]=activity.getPreferences(0).getString(protectedKeys[i],null);
         try{
+            applyLayoutConfig(core("{\"op\":\"preset\",\"name\":\"general\"}"),templateName);
             invokeActivity("openEditor");SystemClock.sleep(800);
             // Measure from a known size even when the saved user layout is already enlarged.
             tapNode("A");progress("控件大小",0);key(KeyEvent.KEYCODE_BACK);
             Rect before=bounds(waitNode("A",5000));tapNode("A");progress("控件大小",5000);key(KeyEvent.KEYCODE_BACK);
             Rect after=bounds(waitNode("A",5000));
             if(after.width()<before.width()*1.35f)throw new AssertionError("Live size preview did not resize A");
-            tapNode("LB");progress("控件宽度",2615);progress("控件高度",2536);key(KeyEvent.KEYCODE_BACK);
+            tapNode("LB");progress("控件宽度",2594);progress("控件高度",2488);key(KeyEvent.KEYCODE_BACK);
             org.json.JSONObject layout=core("{\"op\":\"snapshot\"}").getJSONObject("settings").getJSONObject("layout");
             if(Math.abs(layout.getJSONObject("lb").getDouble("width")-2.1)>.01||Math.abs(layout.getJSONObject("lb").getDouble("height")-2.6)>.01)throw new AssertionError("Independent shoulder dimensions not saved");
             // Restore defaults, then place a vertical brake in free canvas space.
             key(KeyEvent.KEYCODE_BACK);
-            org.json.JSONObject config=new org.json.JSONObject(original.toString());config.put("linear_triggers",true);config.put("gyro_enabled",false);
+            org.json.JSONObject config=core("{\"op\":\"preset\",\"name\":\"general\"}");config.put("linear_triggers",true);config.put("gyro_enabled",false);
             org.json.JSONObject positions=new org.json.JSONObject();positions.put("lt",new org.json.JSONObject("{\"x\":500,\"y\":330,\"width\":0.6,\"height\":4}"));config.put("layout",positions);
             java.lang.reflect.Method apply=activity.getClass().getDeclaredMethod("applyTemplate",org.json.JSONObject.class,String.class);apply.setAccessible(true);
             runOnMainSync(()->{try{apply.invoke(activity,config,templateName);}catch(Exception e){throw new RuntimeException(e);}});
@@ -705,34 +957,39 @@ public final class DeviceInstrumentation extends Instrumentation {
             if(Math.abs((Float)angle.invoke(null,zero,right)-23.5f)>.01)throw new AssertionError("Relative quaternion steering angle incorrect");
             steeringPresets();
             org.json.JSONObject settings=(org.json.JSONObject)member(activity,"settings");settings.put("gyro_enabled",true);invokeActivity("saveSettings");SystemClock.sleep(300);
-            if(!(Boolean)member(gyro,"running"))throw new AssertionError("Gyro listener not registered while controlling");
+            waitNode("开始校准",5000);SystemClock.sleep(900);
+            if((Boolean)member(gyro,"running"))throw new AssertionError("Gyro started before the user pressed Start");
             org.json.JSONArray controls=new org.json.JSONArray(coreRaw("{\"op\":\"layout\"}"));
-            boolean recenter=false;for(int i=0;i<controls.length();i++)if(controls.getJSONObject(i).getString("id").equals("calibrate"))recenter=true;
-            if(!recenter)throw new AssertionError("Manual recenter control missing");
-            java.lang.reflect.Method calibrate=gyroClass.getDeclaredMethod("calibrate"),calibrating=gyroClass.getDeclaredMethod("calibrating");calibrate.setAccessible(true);calibrating.setAccessible(true);
-            runOnMainSync(()->{try{calibrate.invoke(gyro);}catch(Exception e){throw new RuntimeException(e);}});
-            if(!(Boolean)calibrating.invoke(gyro))throw new AssertionError("Manual calibration did not start");
+            for(int i=0;i<controls.length();i++)if(controls.getJSONObject(i).getString("id").equals("calibrate"))throw new AssertionError("Retired recenter control is still visible");
+            phase("racing-gyro-waits-for-start","","true");tapNode("开始校准");
+            java.lang.reflect.Method calibrating=gyroClass.getDeclaredMethod("calibrating");calibrating.setAccessible(true);
+            if(!(Boolean)member(gyro,"running"))throw new AssertionError("Start button did not register the rotation sensor");
             long deadline=SystemClock.uptimeMillis()+5000;while((Boolean)calibrating.invoke(gyro)&&SystemClock.uptimeMillis()<deadline)SystemClock.sleep(50);
             if((Boolean)calibrating.invoke(gyro))throw new AssertionError("Stable phone did not finish calibration");
             phase("racing-gyro-calibrated","","true");
-            // Already enabled: each new controller entry must restart calibration automatically.
-            runOnMainSync(()->{try{java.lang.reflect.Method open=activity.getClass().getDeclaredMethod("openController");open.setAccessible(true);open.invoke(activity);}catch(Exception e){throw new RuntimeException(e);}});
-            SystemClock.sleep(200);
-            if(!(Boolean)calibrating.invoke(gyro))throw new AssertionError("Already enabled gyro skipped startup calibration");
+            invokeActivity("openController");waitNode("开始校准",5000);SystemClock.sleep(900);
+            if((Boolean)member(gyro,"running"))throw new AssertionError("Controller reentry started automatic calibration");
             org.json.JSONObject during=core("{\"op\":\"snapshot\"}").getJSONObject("state");
-            if(during.getJSONArray("axes").getDouble(0)!=0)throw new AssertionError("Startup calibration emitted steering");
-            SystemClock.sleep(1000);
-            if((Boolean)calibrating.invoke(gyro))throw new AssertionError("Startup calibration did not finish");
-            phase("racing-gyro-startup-calibrated","","true");
+            if(during.getJSONArray("axes").getDouble(0)!=0)throw new AssertionError("Waiting prompt emitted steering");
+            phase("racing-gyro-reentry-waits-for-start","","true");tapNode("暂不校准");SystemClock.sleep(900);
+            if((Boolean)member(gyro,"running"))throw new AssertionError("Dismissed prompt armed the sensor");
+            phase("racing-gyro-dismissed-keeps-neutral","","true");
+            tapNode("手柄设置");tapNode("手感调节");tapNode("陀螺仪校准");waitNode("开始校准",5000);
+            tapNode("开始校准");deadline=SystemClock.uptimeMillis()+5000;while((Boolean)calibrating.invoke(gyro)&&SystemClock.uptimeMillis()<deadline)SystemClock.sleep(50);
+            if((Boolean)calibrating.invoke(gyro))throw new AssertionError("Explicit second calibration did not finish");
+            phase("racing-gyro-manual-menu-calibrated","","true");
             tapNode("手柄设置");SystemClock.sleep(100);
             if((Boolean)member(gyro,"running"))throw new AssertionError("Gyro listener remained registered in settings");
             phase("racing-gyro-settings-neutral","","true");key(KeyEvent.KEYCODE_BACK);
+            waitNode("开始校准",5000);SystemClock.sleep(800);if((Boolean)member(gyro,"running"))throw new AssertionError("Settings return started automatic calibration");tapNode("暂不校准");
+            key(KeyEvent.KEYCODE_HOME);SystemClock.sleep(700);phase("racing-gyro-background-stopped","","false");trace("resume-activity");SystemClock.sleep(1800);
+            waitNode("开始校准",15000);SystemClock.sleep(800);if((Boolean)member(gyro,"running"))throw new AssertionError("Background resume started automatic calibration");phase("racing-gyro-resume-waits-for-start","","true");tapNode("暂不校准");
             returnToNative();SystemClock.sleep(200);
             if((Boolean)member(gyro,"running"))throw new AssertionError("Gyro listener remained registered after disconnect");
             phase("racing-disconnected","","false");
         }finally{
-            core(new org.json.JSONObject().put("op","configure").put("settings",original).toString());
-            android.content.SharedPreferences.Editor restore=activity.getPreferences(0).edit();if(saved==null)restore.remove("rust_settings");else restore.putString("rust_settings",saved);restore.putString("template_name",templateName);restore.commit();
+            applyLayoutConfig(original,templateName);
+            android.content.SharedPreferences.Editor restore=activity.getPreferences(0).edit();if(saved==null)restore.remove("rust_settings");else restore.putString("rust_settings",saved);restore.putString("template_name",templateName);for(int i=0;i<protectedKeys.length;i++){if(protectedValues[i]==null)restore.remove(protectedKeys[i]);else restore.putString(protectedKeys[i],protectedValues[i]);}restore.commit();
         }
     }
     private void steeringPresets() throws Exception {
@@ -904,7 +1161,8 @@ public final class DeviceInstrumentation extends Instrumentation {
         while (SystemClock.uptimeMillis() < until) {
             AccessibilityNodeInfo node = find(automation.getRootInActiveWindow(), text, contains);
             AccessibilityNodeInfo dock=find(automation.getRootInActiveWindow(),"导航主页",false);
-            boolean covered=node!=null&&dock!=null&&!text.startsWith("导航")&&bounds(node).bottom>bounds(dock).top;
+            Rect dockArea=dock==null?new Rect():bounds(dock);AccessibilityNodeInfo lastTab=find(automation.getRootInActiveWindow(),"导航设置",false);if(lastTab!=null)dockArea.union(bounds(lastTab));
+            boolean covered=node!=null&&dock!=null&&!text.startsWith("导航")&&Rect.intersects(bounds(node),dockArea);
             if (node != null && !bounds(node).isEmpty()&&!covered) return node;
             AccessibilityNodeInfo scroll=findScrollable(automation.getRootInActiveWindow());
             if(scroll!=null)scroll.performAction(node!=null&&bounds(node).bottom<=bounds(scroll).top?AccessibilityNodeInfo.ACTION_SCROLL_BACKWARD:AccessibilityNodeInfo.ACTION_SCROLL_FORWARD);

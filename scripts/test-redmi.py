@@ -16,7 +16,7 @@ parser.add_argument('--serial', required=True)
 parser.add_argument('--address', required=True)
 parser.add_argument('--port', type=int, default=3215)
 parser.add_argument('--output', default='artifacts/redmi-test')
-parser.add_argument('--suite', choices=['baseline', 'settings', 'shell', 'usb', 'camera', 'bluetooth', 'native', 'racing', 'connection'], default='baseline')
+parser.add_argument('--suite', choices=['baseline', 'settings', 'shell', 'usb', 'camera', 'bluetooth', 'native', 'racing', 'connection', 'forza'], default='baseline')
 parser.add_argument('--native-output', action='store_true', help='Verify each phase against the real Windows XInput device.')
 parser.add_argument('--xinput-slot', type=int, choices=range(4), default=0)
 parser.add_argument('--bluetooth-name', default='LAPTOP-MHB9SRM0')
@@ -76,12 +76,24 @@ phases = []
 bundle = {}
 log = []
 single_touches = []
+rumble_process = None
 for line in device.stdout:
     log.append(line)
     match = re.match(r'INSTRUMENTATION_STATUS: (\w+)=(.*)', line.rstrip())
     if match:
         bundle[match[1]] = match[2]
         if match[1] == 'orbit_trace': print('TRACE: ' + match[2], flush=True)
+        if match[1] == 'orbit_trace' and match[2] == 'game-rumble-on':
+            assert args.native_output, 'Game feedback suite requires --native-output'
+            if rumble_process is not None and rumble_process.poll() is None:
+                rumble_process.terminate(); rumble_process.wait(timeout=5)
+            expected_report = status()['report']
+            assert expected_report['buttons'] == 4096, 'Identify only the controller held by the test phone'
+            slots = json.loads(subprocess.check_output([str(probe)], text=True, creationflags=subprocess.CREATE_NO_WINDOW))
+            matches = [i for i, report in enumerate(slots) if report == expected_report]
+            assert len(matches) == 1, 'Test controller must have a unique input report'
+            args.xinput_slot = matches[0]
+            rumble_process = subprocess.Popen([str(probe), str(args.xinput_slot), '32768', '16384', '4000'], stdout=subprocess.DEVNULL, creationflags=subprocess.CREATE_NO_WINDOW)
         if match[1] == 'orbit_trace' and re.fullmatch(r'single-touch:[0-9]+:[0-9]+', match[2]):
             _, x, y = match[2].split(':')
             single_touches.append(subprocess.Popen([*adb, 'shell', 'input', 'swipe', x, y, x, y, '700'], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL))
@@ -94,6 +106,13 @@ for line in device.stdout:
                 subprocess.run([*adb, 'exec-out', 'screencap', '-p'], stdout=file, check=True)
     if line.startswith('INSTRUMENTATION_STATUS_CODE:') and 'orbit_phase' in bundle:
         stage = bundle['orbit_phase']
+        if args.suite == 'forza' and stage == 'forza-a-held':
+            target = status()['report']
+            slots = json.loads(subprocess.check_output([str(probe)], text=True, creationflags=subprocess.CREATE_NO_WINDOW))
+            matches = [i for i, report in enumerate(slots) if report == target and target['buttons'] == 4096]
+            assert len(matches) == 1, 'Identify exactly one test controller before native readback'
+            args.xinput_slot = matches[0]
+
         expected = set(filter(None, bundle.get('orbit_expected', '').split(',')))
         connected = bundle['orbit_connected'] == 'true'
         deadline = time.monotonic() + .42
@@ -115,12 +134,16 @@ for line in device.stdout:
             time.sleep(.035)
         phases.append({'phase': stage, 'passed': passed, 'expected': sorted(expected), 'expectedConnected': connected, 'samples': samples, 'emittedMs': bundle.get('orbit_emitted_ms'), 'receivedMs': round(time.time()*1000)})
         print(f'{"PASS" if passed else "FAIL"}: {stage}; report={actual["report"]}; connected={actual["connected"]}', flush=True)
-        if stage.startswith(('racing-', 'connection-')) or stage in ['wrong-code-rejected', 'landscape-awake-connected', 'three-finger-dual-stick-and-a', 'material-settings-mapping', 'material-settings-feel', 'settings-back-preserves-connection', 'native-settings-saved', 'native-settings-restored', 'shell-home', 'shell-theme', 'shell-about', 'shell-scan-default', 'shell-editor-drag', 'shell-template-loaded', 'shell-usb-option', 'shell-bluetooth-option']:
+        if stage == 'forza-rumble-running':
+            (output / 'android-vibrator-state.txt').write_text(subprocess.check_output([*adb, 'shell', 'dumpsys', 'vibrator_manager'], text=True, encoding='utf-8', errors='replace'), encoding='utf-8')
+        if stage.startswith(('racing-', 'connection-', 'forza-')) or stage in ['wrong-code-rejected', 'landscape-awake-connected', 'three-finger-dual-stick-and-a', 'material-settings-mapping', 'material-settings-feel', 'settings-back-preserves-connection', 'native-settings-saved', 'native-settings-restored', 'shell-home', 'shell-theme', 'shell-about', 'shell-scan-default', 'shell-editor-drag', 'shell-template-loaded', 'shell-usb-option', 'shell-bluetooth-option']:
             shot = output / (stage + '.png')
             with shot.open('wb') as file:
                 subprocess.run([*adb, 'exec-out', 'screencap', '-p'], stdout=file, check=True)
         bundle = {}
 exit_code = device.wait(timeout=10)
+if rumble_process is not None and rumble_process.poll() is None:
+    rumble_process.terminate(); rumble_process.wait(timeout=5)
 if args.suite == 'camera' and not camera_granted_before:
     subprocess.run([*adb, 'shell', 'pm', 'revoke', 'app.orbitpad.controller', 'android.permission.CAMERA'],check=True)
 if args.suite == 'bluetooth' and not bluetooth_granted_before:

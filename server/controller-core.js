@@ -12,6 +12,7 @@ export const PRESETS = Object.freeze({
   general: { name: '通用游戏', mapping: DEFAULT_MAPPING },
   racing: { name: '竞速驾驶', mapping: DEFAULT_MAPPING },
   platform: { name: '平台跳跃', mapping: DEFAULT_MAPPING },
+  forza: { name: '极限竞速：地平线', mapping: DEFAULT_MAPPING },
 });
 export const BUTTON_MASKS = Object.freeze({ up: 0x0001, down: 0x0002, left: 0x0004, right: 0x0008,
   start: 0x0010, select: 0x0020, l3: 0x0040, r3: 0x0080, lb: 0x0100, rb: 0x0200,
