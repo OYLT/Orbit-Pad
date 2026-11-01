@@ -3,13 +3,13 @@
 Android App + Windows 原生接收端，将手机变成 Xbox 360 / XInput 手柄。
 网页端、浏览器控制台和静态资源服务已删除。HTTP / WebSocket 继续用于原生客户端通信。
 
-## 最新发布：0.5.0 Layout Editor
+## 最新发布：0.5.0 Themes & Rumble
 
-- [Android APK](https://github.com/OYLT/Orbit-Pad/releases/download/v0.5.0-layout-editor/OrbitPad-Android-v0.5.0.apk)
-- [Windows x64 接收端](https://github.com/OYLT/Orbit-Pad/releases/download/v0.5.0-layout-editor/OrbitPad-Receiver-Windows-x64-v0.5.0-native.zip)
-- [更新说明、测试记录与 SHA-256](https://github.com/OYLT/Orbit-Pad/releases/tag/v0.5.0-layout-editor)
+- [Android APK](https://github.com/OYLT/Orbit-Pad/releases/download/v0.5.0-themes-rumble/OrbitPad-Android-v0.5.0.apk)
+- [Windows x64 接收端](https://github.com/OYLT/Orbit-Pad/releases/download/v0.5.0-themes-rumble/OrbitPad-Receiver-Windows-x64-v0.5.0-native.zip)
+- [更新说明、测试记录与 SHA-256](https://github.com/OYLT/Orbit-Pad/releases/tag/v0.5.0-themes-rumble)
 
-包含分组布局编辑、横向配置卡片、陀螺仪启动自动校准与 F1 转向预设，并保留液态玻璃 Dock 和线性扳机。应用内版本保持 0.5.0，沿用原签名，可覆盖安装。发布验证见 [本版发布说明](docs/RELEASE-LAYOUT-EDITOR.md)。
+新增液态玻璃 / Material 3 主题、全局浅深色与壁纸取色、横屏侧边导航、手动陀螺仪校准、地平线模板和真实游戏震动反馈，并保留分组布局编辑、F1 转向预设与线性扳机。应用内版本保持 0.5.0，沿用原签名，可覆盖安装。游戏震动需要同时更新 Android 和 Windows 接收端。发布验证见 [本版发布说明](docs/RELEASE-THEMES-RUMBLE.md)。
 
 ## 本地构建
 
@@ -17,7 +17,7 @@ Android App + Windows 原生接收端，将手机变成 Xbox 360 / XInput 手柄
 - Windows：`releases/OrbitPad-Receiver-Windows-x64-v0.5.0-native.zip`，Windows 10 / 11 x64。
 - 延续项目原签名，保留旧模板、映射、布局和手感设置，旧模板自动补充 Xbox 键。
 
-本地构建另含手动陀螺仪校准更新：删除回正按键，进入手柄显示悬浮提示，点击「开始校准」才采样。此更新尚未上传到上方 GitHub 发布链接，安装本地 APK 可体验。
+上述 GitHub Release 包含当前主题、布局、手动校准和游戏震动更新。
 
 ## 使用
 

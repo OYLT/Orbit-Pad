@@ -16,4 +16,4 @@
 - 真机报告与截图：`artifacts/manual-gyro-calibration-final`。使用 USB / ADB reverse 与预览接收端；未验证具体赛车游戏驾驶手感或实际 XInput 输出。
 - 双架构 APK 已构建，并通过原签名、v2/v3 签名和 16 KB 对齐检查。文件为 `releases/OrbitPad-Android-v0.5.0.apk`，SHA-256 见 `releases/SHA256SUMS.txt`。
 
-本次校准流程只需更新 Android；电脑接收端无需因本项变更更新。本地 APK 尚未上传 GitHub 发布页。
+本次校准流程只需更新 Android；电脑接收端无需因本项变更更新。APK 随 [v0.5.0-themes-rumble](https://github.com/OYLT/Orbit-Pad/releases/tag/v0.5.0-themes-rumble) 发布；同版游戏震动功能需要同时更新 Windows 接收端。
